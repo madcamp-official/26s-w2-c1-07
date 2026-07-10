@@ -1,0 +1,54 @@
+# ─── Unity 생성 폴더 ───
+[Ll]ibrary/
+[Tt]emp/
+[Oo]bj/
+[Bb]uild/
+[Bb]uilds/
+[Ll]ogs/
+[Uu]ser[Ss]ettings/
+[Mm]emoryCaptures/
+[Rr]ecordings/
+
+# Unity 3D formats
+ExportedObj/
+.consulo/
+*.svd
+*.pidb.meta
+*.pdb.meta
+*.mdb.meta
+
+# 에셋 .meta 는 커밋해야 하지만, 무시된 에셋의 meta 는 제외
+!/[Aa]ssets/**/*.meta
+
+# ─── IDE / 생성 프로젝트 파일 ───
+.vs/
+.vscode/
+.idea/
+*.csproj
+*.sln
+*.slnx
+*.suo
+*.user
+*.userprefs
+*.unityproj
+*.booproj
+Assembly-*.csproj
+.vsconfig
+
+# ─── 빌드 산출물 ───
+*.apk
+*.aab
+*.unitypackage
+*.app
+*.exe
+*.dmg
+
+# ─── OS / 기타 ───
+.DS_Store
+Thumbs.db
+sysinfo.txt
+crashlytics-build.properties
+
+# ─── Steamworks ───
+# 개발용 steam_appid.txt 는 로컬에서 각자 두는 것을 권장
+steam_appid.txt
