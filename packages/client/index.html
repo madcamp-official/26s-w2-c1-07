@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>룰렛 파티 · Day2 프로토타입</title>
+  </head>
+  <body>
+    <!-- 로비 / 닉네임 입장 오버레이 -->
+    <div id="overlay">
+      <div class="card">
+        <h1>🎡 룰렛 파티</h1>
+        <p class="sub">Day2 실시간 동기화 프로토타입</p>
+        <input id="name" type="text" maxlength="16" placeholder="닉네임 (최대 16자)" autocomplete="off" />
+        <button id="join">입장하기</button>
+        <p class="hint">이동 <b>WASD</b> · 점프 <b>Space</b> · 화면 클릭 후 <b>마우스</b>로 시점 회전 · <b>Esc</b> 해제</p>
+      </div>
+    </div>
+
+    <!-- 인게임 HUD -->
+    <div id="hud" hidden>
+      <div id="status">연결 중…</div>
+      <div id="list"></div>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

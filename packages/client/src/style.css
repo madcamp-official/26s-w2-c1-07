@@ -1,0 +1,127 @@
+:root {
+  color-scheme: dark;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+* {
+  box-sizing: border-box;
+}
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: #0b1020;
+}
+canvas {
+  display: block;
+}
+
+/* ── 로비 오버레이 ── */
+#overlay {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: radial-gradient(circle at 50% 30%, #1e293b, #0b1020);
+  z-index: 10;
+}
+#overlay .card {
+  width: min(90vw, 360px);
+  padding: 32px 28px;
+  border-radius: 16px;
+  background: rgba(15, 23, 42, 0.9);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  text-align: center;
+}
+#overlay h1 {
+  margin: 0 0 4px;
+  font-size: 28px;
+}
+#overlay .sub {
+  margin: 0 0 24px;
+  color: #94a3b8;
+  font-size: 14px;
+}
+#overlay input {
+  width: 100%;
+  padding: 12px 14px;
+  font-size: 16px;
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  background: #0b1020;
+  color: #e2e8f0;
+  margin-bottom: 12px;
+}
+#overlay input:focus {
+  outline: 2px solid #3b82f6;
+  border-color: transparent;
+}
+#overlay button {
+  width: 100%;
+  padding: 12px 14px;
+  font-size: 16px;
+  font-weight: 700;
+  border: none;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+  color: white;
+  cursor: pointer;
+}
+#overlay button:hover {
+  filter: brightness(1.1);
+}
+#overlay button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+#overlay .hint {
+  margin: 20px 0 0;
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.6;
+}
+#overlay .hint b {
+  color: #cbd5e1;
+}
+
+/* ── HUD ── */
+#hud {
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  z-index: 5;
+  pointer-events: none;
+  font-size: 13px;
+  color: #e2e8f0;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+}
+#status {
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.6);
+  display: inline-block;
+  margin-bottom: 8px;
+}
+#list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+#list .row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: rgba(15, 23, 42, 0.45);
+}
+#list .dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex: none;
+}
+#list .me {
+  font-weight: 700;
+}

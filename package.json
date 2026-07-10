@@ -1,0 +1,17 @@
+{
+  "name": "roulette-party",
+  "version": "0.0.1",
+  "private": true,
+  "description": "룰렛 파티 — 실시간 다인원 파티 플랫포머 (Day2 동기화 프로토타입)",
+  "packageManager": "pnpm@9.12.0",
+  "scripts": {
+    "dev": "concurrently -n server,client -c green,cyan \"pnpm dev:server\" \"pnpm dev:client\"",
+    "dev:server": "pnpm --filter @roulette/server dev",
+    "dev:client": "pnpm --filter @roulette/client dev",
+    "bots": "pnpm --filter @roulette/bot start"
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.1",
+    "typescript": "^5.6.3"
+  }
+}
