@@ -79,6 +79,15 @@ canvas {
   opacity: 0.5;
   cursor: default;
 }
+#overlay .err {
+  margin: 12px 0 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  color: #fca5a5;
+  font-size: 13px;
+}
 #overlay .hint {
   margin: 20px 0 0;
   color: #64748b;

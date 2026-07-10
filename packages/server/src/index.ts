@@ -14,10 +14,13 @@ import {
   EV,
   PALETTE,
   clamp,
+  terrainHeight,
+  nameKey,
   type PlayerState,
   type C2S_Join,
   type C2S_Input,
   type S2C_Welcome,
+  type S2C_JoinRejected,
   type S2C_PlayerJoined,
   type S2C_PlayerLeft,
   type S2C_Snapshot,
@@ -49,19 +52,39 @@ const io = new Server(http, {
 });
 
 function spawnPoint() {
-  const x = (Math.random() - 0.5) * WORLD.SIZE_X * 0.5;
+  // 가장자리 산·강 중심을 피해 걷기 좋은 구역에서 스폰, y 는 지형 높이
+  const x = (Math.random() - 0.5) * WORLD.SIZE_X * 0.45;
   const z = (Math.random() - 0.5) * WORLD.SIZE_Z * 0.5;
-  return { x, y: WORLD.SPAWN_Y, z };
+  return { x, y: terrainHeight(x, z), z };
+}
+
+/** 현재 접속자 중 같은 닉네임(대소문자 무시)이 있는가 */
+function isNameTaken(name: string): boolean {
+  const key = nameKey(name);
+  for (const e of players.values()) if (nameKey(e.state.name) === key) return true;
+  return false;
 }
 
 io.on('connection', (socket) => {
   let id: string | null = null;
 
   socket.on(EV.JOIN, (msg: C2S_Join) => {
-    if (id) return; // 중복 join 무시
+    if (id) return; // 이미 입장한 소켓의 중복 join 무시
+    const name = (msg?.name ?? '').toString().slice(0, 16).trim();
+
+    // 닉네임 검증: 빈 값 / 중복 거부 (id 를 아직 배정하지 않아 재시도 가능)
+    if (!name) {
+      socket.emit(EV.JOIN_REJECTED, { reason: '닉네임을 입력하세요.' } satisfies S2C_JoinRejected);
+      return;
+    }
+    if (isNameTaken(name)) {
+      socket.emit(EV.JOIN_REJECTED, {
+        reason: `'${name}' 은(는) 이미 사용 중입니다. 다른 닉네임을 써주세요.`,
+      } satisfies S2C_JoinRejected);
+      return;
+    }
+
     id = socket.id;
-    const name =
-      (msg?.name ?? '').toString().slice(0, 16).trim() || `Player-${id.slice(0, 4)}`;
     const color = PALETTE[colorCursor++ % PALETTE.length];
     const sp = spawnPoint();
     const state: PlayerState = {
@@ -93,12 +116,13 @@ io.on('connection', (socket) => {
     const e = players.get(id);
     if (!e) return;
     e.lastSeen = Date.now();
-    // 클라 권위 릴레이 + 경량 방어 (경계 클램프). 이동은 재계산하지 않는다.
+    // 클라 권위 릴레이 + 경량 방어 (경계 + 지형 클램프). 이동은 재계산하지 않는다.
     const hx = WORLD.SIZE_X / 2;
     const hz = WORLD.SIZE_Z / 2;
     e.state.x = clamp(Number(msg.x) || 0, -hx, hx);
     e.state.z = clamp(Number(msg.z) || 0, -hz, hz);
-    e.state.y = clamp(Number(msg.y) || 0, -5, 50);
+    const gy = terrainHeight(e.state.x, e.state.z);
+    e.state.y = clamp(Number(msg.y) || 0, gy - 3, gy + 60);
     e.state.yaw = Number(msg.yaw) || 0;
     e.state.anim = (msg.anim | 0) as PlayerState['anim'];
   });

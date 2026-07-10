@@ -14,6 +14,7 @@ import {
   EV,
   ANIM,
   clamp,
+  terrainHeight,
   type C2S_Join,
   type C2S_Input,
   type S2C_Welcome,
@@ -84,7 +85,7 @@ setInterval(() => {
     b.z = clamp(b.z + b.vz * dt, -WORLD.SIZE_Z / 2, WORLD.SIZE_Z / 2);
     b.socket.emit(EV.INPUT, {
       x: b.x,
-      y: WORLD.GROUND_Y,
+      y: terrainHeight(b.x, b.z),
       z: b.z,
       yaw: b.yaw,
       anim: ANIM.RUN,
