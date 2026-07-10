@@ -3,25 +3,69 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>룰렛 파티 · Day2 프로토타입</title>
+    <title>룰렛 파티</title>
   </head>
   <body>
-    <!-- 로비 / 닉네임 입장 오버레이 -->
+    <!-- 로비 / 닉네임 입장 -->
     <div id="overlay">
       <div class="card">
         <h1>🎡 룰렛 파티</h1>
-        <p class="sub">Day2 실시간 동기화 프로토타입</p>
+        <p class="sub">유저가 함정을 깔고 룰렛이 주제를 정하는 파티 게임</p>
         <input id="name" type="text" maxlength="16" placeholder="닉네임 (최대 16자)" autocomplete="off" />
         <button id="join">입장하기</button>
         <p id="joinError" class="err" hidden></p>
-        <p class="hint">이동 <b>WASD</b> · 점프 <b>Space</b> · 화면 클릭 후 <b>마우스</b>로 시점 회전 · <b>Esc</b> 해제</p>
+        <p class="hint">이동 <b>WASD</b> · 점프 <b>Space</b> · 시점 <b>마우스</b>(클릭 후) · 배치 회전 <b>R</b></p>
       </div>
     </div>
 
-    <!-- 인게임 HUD -->
+    <!-- 상단: 페이즈 + 타이머 -->
+    <div id="phaseBar" hidden><span id="phaseName"></span><span id="timer"></span></div>
+
+    <!-- 상단 중앙: PLAY 목표 -->
+    <div id="objective" hidden></div>
+
+    <!-- 좌상단 HUD: 접속·명단 -->
     <div id="hud" hidden>
       <div id="status">연결 중…</div>
       <div id="list"></div>
+    </div>
+
+    <!-- PREP: 장애물 팔레트 + 주제 투표 -->
+    <div id="prep" hidden>
+      <div class="prep-row">
+        <span class="lbl">장애물</span>
+        <button class="obs sel" data-type="WALL">벽</button>
+        <button class="obs" data-type="CYLINDER">원기둥</button>
+        <button class="obs" data-type="GHOST">투명벽</button>
+        <span id="obsLeft" class="left"></span>
+      </div>
+      <div class="prep-row">
+        <span class="lbl">주제 투표</span>
+        <button class="vote" data-topic="race">목표 지점 <b data-c="race">0</b></button>
+        <button class="vote" data-topic="height">가장 높은 곳 <b data-c="height">0</b></button>
+        <button class="vote" data-topic="survive">오래 버티기 <b data-c="survive">0</b></button>
+      </div>
+      <p class="prep-hint">바닥을 클릭해 장애물 배치 · <b>R</b> 회전 · 함정으로 남을 강에 빠뜨리면 점수!</p>
+    </div>
+
+    <!-- ROULETTE -->
+    <div id="roulette" hidden>
+      <div class="r-title">룰렛 돌리는 중…</div>
+      <div class="r-slots">
+        <div class="r-slot" data-topic="race">목표 지점 도달</div>
+        <div class="r-slot" data-topic="height">가장 높은 곳</div>
+        <div class="r-slot" data-topic="survive">오래 버티기</div>
+      </div>
+    </div>
+
+    <!-- HIGHLIGHT 배너 -->
+    <div id="highlight" hidden></div>
+
+    <!-- RESULT -->
+    <div id="result" hidden>
+      <h2>🏆 최종 결과</h2>
+      <div id="resultRows"></div>
+      <p class="r-foot">잠시 후 새 매치가 시작됩니다…</p>
     </div>
 
     <script type="module" src="/src/main.ts"></script>
