@@ -114,6 +114,21 @@ namespace RouletteParty.Match
         public MatchPhase CurrentPhase => _phase.Value;
         public int MaxPerPlayer => _maxPerPlayer;
 
+        // ---- Day6 HUD/UI 읽기용 공개 접근점(전부 read-only; 서버 write 상태를 클라가 읽음) ----
+        public int       Round              => _round.Value;
+        public TopicMode Topic              => _topic.Value;
+        public int       AliveCount         => _aliveCount.Value;
+        public ulong     RoundWinnerId      => _roundWinner.Value;
+        public ulong     MatchWinnerId      => _matchWinner.Value;
+        public double    PhaseEndServerTime => _phaseEndTime.Value;
+        // 클라/서버 공통 남은 시간(초). ServerTime 은 클라에도 동기화된다.
+        public float PhaseRemaining =>
+            (IsSpawned && NetworkManager != null)
+                ? Mathf.Max(0f, (float)(_phaseEndTime.Value - NetworkManager.ServerTime.Time))
+                : 0f;
+        // 라운드별 랭킹 행(각 행 Score = 라운드 총점). HUD 가 누적 점수/결과 화면을 이걸로 구성.
+        public NetworkList<RoundResult> Results => _results;
+
         // ============================ Lifecycle ============================
         public override void OnNetworkSpawn()
         {
