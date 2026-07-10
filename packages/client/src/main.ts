@@ -333,9 +333,13 @@ function applyPhase(p: S2C_Phase) {
   if (phase !== PHASE.ROULETTE) { rouletteEl.hidden = true; }
   if (phase !== PHASE.HIGHLIGHT) highlightEl.hidden = true;
   resultEl.hidden = phase !== PHASE.RESULT;
-  objectiveEl.hidden = phase !== PHASE.PLAY;
+  objectiveEl.hidden = !(phase === PHASE.PLAY || phase === PHASE.LOBBY);
+
+  // PLAY 가 아니면 포인터 잠금 해제 (준비 페이즈에서 바닥 클릭 배치 가능하게)
+  if (phase !== PHASE.PLAY && document.pointerLockElement) document.exitPointerLock();
 
   phaseBar.hidden = !myId;
+  if (phase === PHASE.LOBBY) objectiveEl.innerHTML = '🎮 곧 새 매치가 시작됩니다…';
   if (phase === PHASE.PLAY && topicId) {
     const t = topicDef(topicId);
     objectiveEl.innerHTML = `<b>${roundNo}라운드 · ${t.name}</b> — ${t.desc}`;
