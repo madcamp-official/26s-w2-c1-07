@@ -31,7 +31,7 @@ Transform:
   m_GameObject: {fileID: 5450510477442867896}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 1, y: 0.64899, z: 0.75897}
+  m_LocalPosition: {x: 25, y: 5, z: 30}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -158,14 +158,23 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::RouletteParty.Net.PlayerController
   ShowTopMostFoldoutHeaderGroup: 1
-  _moveSpeed: 5
-  _rotationSpeed: 720
-  _gravity: -20
-  _jumpHeight: 1.4
-  _followWithMainCamera: 1
-  _cameraOffset: {x: 0, y: 8, z: -8}
-  _cameraFollowSpeed: 10
-  _cameraLookHeight: 1
+  moveSpeed: 6
+  jumpHeight: 1.5
+  gravity: -20
+  turnSpeed: 12
+  deathY: -3.7
+  spawnPoint: {x: 25, y: 3, z: 30}
+  spawnHeightOffset: 1.5
+  camDistance: 6
+  camHeight: 2.4
+  camPitch: 18
+  camSphereRadius: 0.3
+  camMinDistance: 0.8
+  camCollisionSkin: 0.2
+  camGroundClearance: 0.5
+  camCollisionMask:
+    serializedVersion: 2
+    m_Bits: 0
 --- !u!114 &319737163021261679
 MonoBehaviour:
   m_ObjectHideFlags: 0
