@@ -5,6 +5,10 @@
 * {
   box-sizing: border-box;
 }
+/* id 선택자가 UA의 [hidden] 규칙을 이겨서 .hidden 토글이 안 먹는 문제 방지 */
+[hidden] {
+  display: none !important;
+}
 html,
 body {
   margin: 0;
