@@ -139,7 +139,7 @@ namespace RouletteParty.Match
             ulong me = nm.LocalClientId;
 
             int n = 0;
-            var all = Object.FindObjectsByType<Obstacle>(FindObjectsSortMode.None);
+            var all = Object.FindObjectsByType<Obstacle>(); // 정렬 불필요(개수만 셈)
             foreach (var ob in all)
                 if (ob.IsSpawned && ob.OwnerId.Value == me) n++;
             return n;

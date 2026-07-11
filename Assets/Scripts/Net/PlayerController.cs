@@ -29,22 +29,12 @@ public class PlayerController : NetworkBehaviour
     [Tooltip("(후방추적 전용) 이동 방향으로 몸을 돌리는 속도.")]
     public float turnSpeed = 12f;
 
-    [Header("부활 / 낙사")]
-    [Tooltip("이 y 아래로 떨어지면 사망 처리. TerrainGenerator.DEATH_Y(-3.7) 와 일치시킬 것.")]
-    public float deathY = -3.7f;
-    [Tooltip("부활 지점(지형 위 안전한 곳). y 는 지형 높이 기준으로 자동 보정된다.")]
-    public Vector3 spawnPoint = new Vector3(25f, 3f, 30f);
-    [Tooltip("부활 시 지형 표면에서 얼마나 위에서 시작할지(낙하 여유).")]
-    public float spawnHeightOffset = 1.5f;
-
     [Header("카메라(공통)")]
     public float camHeight = 2.4f;          // 피벗(머리) 높이
     public float camSphereRadius = 0.3f;
     public float camMinDistance = 0.8f;     // 벽에 붙어도 이보다 가깝겐 안 옴
     public float camCollisionSkin = 0.2f;   // 표면에서 살짝 띄우기
-    public float camGroundClearance = 0.5f; // 지형 위 최소 높이
-    [Tooltip("선택: 카메라 오클루전용 LayerMask. 'Ground' 레이어만 지정 권장(플레이어 제외). " +
-             "비우면 SphereCast 오클루전은 생략하고 지형 높이 클램프만 쓴다.")]
+    [Tooltip("카메라 오클루전용 LayerMask. 비워두면(Nothing) 스폰 시 'Ground' 레이어로 자동 설정된다.")]
     public LayerMask camCollisionMask;
 
     [Header("후방추적 카메라(비조준: 준비/로비/결과 등)")]
@@ -97,6 +87,11 @@ public class PlayerController : NetworkBehaviour
             _cam   = Camera.main; // Camera.main 은 비싸므로 한 번만 캐시
             _yaw   = transform.eulerAngles.y;
             _pitch = camPitch;
+
+            // 오클루전 마스크 미지정 시 맵(Ground 레이어) 대상으로 자동 설정.
+            // (레이어가 없으면 GetMask=0 -> 오클루전 생략, 기존과 동일)
+            if (camCollisionMask.value == 0)
+                camCollisionMask = LayerMask.GetMask("Ground");
         }
     }
 
@@ -260,7 +255,6 @@ public class PlayerController : NetworkBehaviour
         }
 
         Vector3 camPos = pivot + dir * dist;
-        ClampToTerrain(ref camPos);
 
         _cam.transform.position = camPos;
         _cam.transform.rotation = rot; // 카메라 전방 = 조준 방향(중앙 조준점이 이 방향)
@@ -282,24 +276,12 @@ public class PlayerController : NetworkBehaviour
         }
 
         Vector3 camPos = pivot + dir * dist;
-        ClampToTerrain(ref camPos);
 
         _cam.transform.position = camPos;
         _cam.transform.rotation = Quaternion.LookRotation(pivot - camPos, Vector3.up);
     }
-
-    // 지형 메시 범위(중앙 정렬 X:[-40,40], Z:[-80,80]) 안에서 카메라가 지면을 뚫지 않게 y 클램프.
-    void ClampToTerrain(ref Vector3 camPos)
-    {
-        float halfX = TerrainGenerator.SIZE_X / 2f;
-        float halfZ = TerrainGenerator.SIZE_Z / 2f;
-        if (camPos.x >= -halfX && camPos.x <= halfX &&
-            camPos.z >= -halfZ && camPos.z <= halfZ)
-        {
-            float minY = TerrainGenerator.SampleHeight(camPos.x, camPos.z) + camGroundClearance;
-            if (camPos.y < minY) camPos.y = minY;
-        }
-    }
+    // 카메라 지면 침투는 Ground 레이어 SphereCast 오클루전이 담당한다.
+    // (플로팅 플랫폼 맵에서는 옛 지형 높이 클램프가 오히려 오동작하므로 폐기.)
 
     // 카메라 중앙에서 나가는 조준 레이 + 히트 지점(자기 콜라이더는 무시). 발사 확장용.
     void UpdateAimRay()
@@ -351,13 +333,5 @@ public class PlayerController : NetworkBehaviour
         _verticalVelocity = 0f; // 낙하 누적 속도 리셋(부활 직후 재낙사 방지)
     }
 
-    // 지형 위 안전한 y 로 보정한 스폰 좌표.
-    Vector3 GetSafeSpawn()
-    {
-        Vector3 p = spawnPoint;
-        float ground = TerrainGenerator.SampleHeight(p.x, p.z);
-        p.y = Mathf.Max(p.y, ground + spawnHeightOffset);
-        return p;
-    }
 }
 }

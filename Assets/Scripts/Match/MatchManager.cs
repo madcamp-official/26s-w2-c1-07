@@ -430,7 +430,7 @@ namespace RouletteParty.Match
             }
         }
 
-        // 서버 검증: PREP 여부 / 1인 최대 개수 / 코스 구간 / 지형 X 범위 / 강(수면) 금지 / 겹침 금지.
+        // 서버 검증: PREP 여부 / 1인 최대 개수 / 코스 구간 / 지면(플랫폼) 존재 / 겹침 금지.
         private bool ValidatePlacement(ulong sender, Vector3 hit, out Vector3 pos)
         {
             pos = default;
@@ -443,13 +443,9 @@ namespace RouletteParty.Match
             // 3) 코스 구간: 스폰선(START_Z) 뒤 / 골(GOAL_Z) 뒤 금지
             if (z > Course.START_Z || z < Course.GOAL_Z) return false;
 
-            // 4) 지형 X 범위(중앙 정렬 -40..40): 가장자리 여유 2
-            float halfX = TerrainGenerator.SIZE_X * 0.5f;
-            if (Mathf.Abs(x) > halfX - 2f) return false;
-
-            // 5) Y 는 지면에 스냅. 강/수면 근처(강 중앙 포함)는 지형이 물 아래로 파여 있으므로 자연히 금지된다.
-            float gy = TerrainGenerator.SampleHeight(x, z);
-            if (gy < TerrainGenerator.WATER_Y + 0.8f) return false;
+            // 4) 지면 존재: 맵 플랫폼(Ground 레이어) 위에서만. 틈/슬라임 바다/맵 밖은 레이가
+            //    안 맞아 자연히 거부된다. Y 는 지면에 스냅.
+            if (!MapSurface.SampleGroundY(x, z, out float gy)) return false;
 
             Vector3 candidate = new Vector3(x, gy, z);
 
@@ -518,9 +514,11 @@ namespace RouletteParty.Match
 
         private Vector3 SpawnSlot(int index)
         {
-            // x=0 중심으로 좌우로 벌린 출발선. y 는 지형 높이 + 여유로 지면 위에 스폰.
+            // x=0 중심으로 좌우로 벌린 출발선. y 는 맵 표면(Ground 레이캐스트) + 여유.
             float x = (index - 3) * spawnSpacingX;
-            float y = TerrainGenerator.SampleHeight(x, Course.START_Z) + 1.5f;
+            float y = MapSurface.SampleGroundY(x, Course.START_Z, out float gy)
+                ? gy + 1.5f
+                : Course.SPAWN_Y + 1.5f; // 맵 미로드 안전망
             return new Vector3(x, y, Course.START_Z);
         }
 
