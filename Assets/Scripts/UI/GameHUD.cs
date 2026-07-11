@@ -9,6 +9,7 @@ using Unity.Netcode;
 using UnityEngine;
 using UnityEngine.UI;
 using RouletteParty.Match;
+using RouletteParty.Net; // PlayerController.IsAiming (조준점 표시 판정)
 
 namespace RouletteParty.UI
 {
@@ -58,6 +59,9 @@ namespace RouletteParty.UI
 
         // 이름표(월드 오브젝트 → 화면) 풀
         private readonly List<Nameplate> _nameplates = new List<Nameplate>();
+
+        // 화면 중앙 조준점(PLAY 중에만 표시). 마우스룩 조준 시점과 짝을 이룬다.
+        private RectTransform _crosshair;
 
         // ---- 재사용 임시 버퍼 (프레임당 GC 최소화) ----
         private readonly List<NetworkObject> _players = new List<NetworkObject>();
@@ -237,6 +241,18 @@ namespace RouletteParty.UI
             SetRect(_resRowsParent, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
                     new Vector2(520, 500), new Vector2(0, -40));
 
+            // --- 조준점(화면 중앙 십자) ---
+            _crosshair = MakeRect(_canvasRT, "Crosshair");
+            SetRect(_crosshair, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
+                    new Vector2(24, 24), Vector2.zero);
+            var chH = MakeImage(_crosshair, new Color(1f, 1f, 1f, 0.85f)); // 가로 바
+            SetRect(chH.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
+                    new Vector2(18, 2), Vector2.zero);
+            var chV = MakeImage(_crosshair, new Color(1f, 1f, 1f, 0.85f)); // 세로 바
+            SetRect(chV.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
+                    new Vector2(2, 18), Vector2.zero);
+            _crosshair.gameObject.SetActive(false);
+
             HideAllPhaseRoots();
             _built = true;
         }
@@ -303,6 +319,18 @@ namespace RouletteParty.UI
                 default: /* Lobby/Prep: 중앙 콘텐츠 없음 */ break;
             }
 
+            // --- 조준점: 로컬 플레이어가 조준 시점일 때 표시(결과 화면 제외) ---
+            bool localAiming = false;
+            for (int i = 0; i < _players.Count; i++)
+            {
+                if (_players[i].OwnerClientId != localId) continue;
+                var pc = _players[i].GetComponent<PlayerController>();
+                if (pc != null) localAiming = pc.IsAiming;
+                break;
+            }
+            if (_crosshair != null)
+                _crosshair.gameObject.SetActive(localAiming && m.CurrentPhase != MatchPhase.Result);
+
             // --- 이름표 ---
             RenderNameplates(cam);
         }
@@ -316,6 +344,7 @@ namespace RouletteParty.UI
             _countdownLabel.text = "";
             EnsureRows(_scoreRows, _scorePanel.transform, 0);
             HideAllPhaseRoots();
+            if (_crosshair != null) _crosshair.gameObject.SetActive(false);
             for (int i = 0; i < _nameplates.Count; i++)
                 _nameplates[i].go.SetActive(false);
         }
