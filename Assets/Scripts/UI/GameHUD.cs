@@ -38,12 +38,10 @@ namespace RouletteParty.UI
         private readonly List<Row> _scoreRows = new List<Row>();
 
         // 중앙 페이즈별 루트
-        private RectTransform _rouletteRoot;
-        private Text _rouletteText;
-
         private RectTransform _playRoot;
         private Text _playObjective;
-        private Text _playSurvive;
+        private Text _playSurvive;   // 등반 정보(현재 높이·생존 수)
+        private Text _deadBanner;    // 탈락·관전 안내
 
         private RectTransform _highlightRoot;
         private Text _hlTitle;
@@ -188,12 +186,11 @@ namespace RouletteParty.UI
             SetRect(_scoreTitle.rectTransform, new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0.5f, 1f),
                     new Vector2(-16, 32), new Vector2(0, -6));
 
-            // --- 룰렛 루트 ---
-            _rouletteRoot = MakeRect(_canvasRT, "RouletteRoot");
-            SetRect(_rouletteRoot, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
-                    new Vector2(700, 200), new Vector2(0, 0));
-            _rouletteText = MakeText(_rouletteRoot, "", 84, TextAnchor.MiddleCenter, Color.white);
-            Stretch(_rouletteText.rectTransform);
+            // --- 탈락(관전) 배너 ---
+            _deadBanner = MakeText(_canvasRT, "", 40, TextAnchor.MiddleCenter, new Color(1f, 0.45f, 0.45f, 1f));
+            SetRect(_deadBanner.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
+                    new Vector2(900, 60), new Vector2(0, 140));
+            _deadBanner.gameObject.SetActive(false);
 
             // --- 플레이 루트 ---
             _playRoot = MakeRect(_canvasRT, "PlayRoot");
@@ -295,11 +292,7 @@ namespace RouletteParty.UI
             _phaseLabel.text = PhaseKorean(m.CurrentPhase);
             _phaseLabel.color = Color.white;
 
-            string sub = "";
-            if (m.Round >= 1) sub = "라운드 " + m.Round + "/3";
-            string tk = TopicKorean(m.Topic);
-            if (tk.Length > 0) sub += (sub.Length > 0 ? "   " : "") + tk;
-            _subLabel.text = sub;
+            _subLabel.text = m.Round >= 1 ? "라운드 " + m.Round + "/3" : "";
 
             float rem = m.PhaseRemaining; // 이미 클램프됨, 클라이언트 안전
             _countdownLabel.text = Mathf.CeilToInt(Mathf.Max(0f, rem)) + "초";
@@ -308,28 +301,39 @@ namespace RouletteParty.UI
             BuildStandings(m);
             FillScoreboard(localId);
 
+            // --- 로컬 플레이어 상태(조준·탈락·높이) ---
+            bool localAiming = false, localDead = false;
+            float localY = 0f;
+            for (int i = 0; i < _players.Count; i++)
+            {
+                if (_players[i].OwnerClientId != localId) continue;
+                var pc = _players[i].GetComponent<PlayerController>();
+                if (pc != null) { localAiming = pc.IsAiming; localDead = pc.Dead.Value; }
+                localY = _players[i].transform.position.y;
+                break;
+            }
+
             // --- 중앙 페이즈별 콘텐츠 ---
             HideAllPhaseRoots();
             switch (m.CurrentPhase)
             {
-                case MatchPhase.Roulette: RenderRoulette(m, rem); break;
-                case MatchPhase.Play:     RenderPlay(m);          break;
+                case MatchPhase.Play:     RenderPlay(m, localY, localDead); break;
                 case MatchPhase.Highlight:RenderHighlight(m);     break;
                 case MatchPhase.Result:   RenderResult(m);        break;
                 default: /* Lobby/Prep: 중앙 콘텐츠 없음 */ break;
             }
 
-            // --- 조준점: 로컬 플레이어가 조준 시점일 때 표시(결과 화면 제외) ---
-            bool localAiming = false;
-            for (int i = 0; i < _players.Count; i++)
+            // --- 탈락 배너 ---
+            if (_deadBanner != null)
             {
-                if (_players[i].OwnerClientId != localId) continue;
-                var pc = _players[i].GetComponent<PlayerController>();
-                if (pc != null) localAiming = pc.IsAiming;
-                break;
+                bool showDead = localDead && m.CurrentPhase == MatchPhase.Play;
+                _deadBanner.gameObject.SetActive(showDead);
+                if (showDead) _deadBanner.text = "탈락! 관전 중 (좌클릭: 대상 전환)";
             }
+
+            // --- 조준점: 로컬 플레이어가 조준 시점일 때 표시(결과·탈락 제외) ---
             if (_crosshair != null)
-                _crosshair.gameObject.SetActive(localAiming && m.CurrentPhase != MatchPhase.Result);
+                _crosshair.gameObject.SetActive(localAiming && !localDead && m.CurrentPhase != MatchPhase.Result);
 
             // --- 이름표 ---
             RenderNameplates(cam);
@@ -345,6 +349,7 @@ namespace RouletteParty.UI
             EnsureRows(_scoreRows, _scorePanel.transform, 0);
             HideAllPhaseRoots();
             if (_crosshair != null) _crosshair.gameObject.SetActive(false);
+            if (_deadBanner != null) _deadBanner.gameObject.SetActive(false);
             for (int i = 0; i < _nameplates.Count; i++)
                 _nameplates[i].go.SetActive(false);
         }
@@ -411,51 +416,15 @@ namespace RouletteParty.UI
         // ===================================================================
         // 페이즈별 렌더링
         // ===================================================================
-        private static readonly string[] ModeNames = { "달리기", "높이", "생존" }; // Race,Height,Survive
-
-        private void RenderRoulette(MatchManager m, float rem)
-        {
-            _rouletteRoot.gameObject.SetActive(true);
-
-            int landing = TopicIndex(m.Topic); // 이미 결정된 실제 Topic
-
-            int idx;
-            if (rem <= 0.4f)
-            {
-                // 마지막엔 실제 Topic에 정착.
-                idx = landing;
-                _rouletteText.color = Color.white;
-            }
-            else
-            {
-                // 남은 시간이 줄수록 간격이 커져 감속(약 5초 페이즈 가정, 순수 시각 효과).
-                float interval = Mathf.Lerp(0.05f, 0.35f, 1f - Mathf.Clamp01(rem / 5f));
-                idx = Mathf.FloorToInt(Time.time / Mathf.Max(0.02f, interval)) % 3;
-                if (idx < 0) idx += 3;
-                _rouletteText.color = Color.white;
-            }
-            _rouletteText.text = "◤ " + ModeNames[idx] + " ◢";
-        }
-
-        private void RenderPlay(MatchManager m)
+        private void RenderPlay(MatchManager m, float localY, bool localDead)
         {
             _playRoot.gameObject.SetActive(true);
-            switch (m.Topic)
-            {
-                case TopicMode.Race:    _playObjective.text = "결승선까지 달려라!"; break;
-                case TopicMode.Height:  _playObjective.text = "가장 높이 올라가라!"; break;
-                case TopicMode.Survive: _playObjective.text = "끝까지 살아남아라!"; break;
-                default:                _playObjective.text = ""; break;
-            }
-            if (m.Topic == TopicMode.Survive)
-            {
-                _playSurvive.gameObject.SetActive(true);
-                _playSurvive.text = "생존 " + m.AliveCount;
-            }
-            else
-            {
-                _playSurvive.gameObject.SetActive(false);
-            }
+            _playObjective.text = "더 높이 올라가라!";
+            _playSurvive.gameObject.SetActive(true);
+            // 현재 높이(점수의 근거)와 생존 수. 체력은 비공개 규칙이라 절대 표시하지 않는다.
+            _playSurvive.text = localDead
+                ? "생존 " + m.AliveCount
+                : $"높이 {Mathf.Max(0f, localY):0.0} m   생존 {m.AliveCount}";
         }
 
         private void RenderHighlight(MatchManager m)
@@ -475,7 +444,7 @@ namespace RouletteParty.UI
                 _hlTrophy.color = Color.white;
             }
 
-            _hlTopic.text = TopicKorean(m.Topic);
+            _hlTopic.text = "누적 점수는 우상단 점수판";
 
             // 이번 라운드 결과만 필터 → Rank 오름차순 → 상위 3.
             _roundResults.Clear();
@@ -610,7 +579,6 @@ namespace RouletteParty.UI
         // ===================================================================
         private void HideAllPhaseRoots()
         {
-            if (_rouletteRoot != null) _rouletteRoot.gameObject.SetActive(false);
             if (_playRoot != null) _playRoot.gameObject.SetActive(false);
             if (_highlightRoot != null) _highlightRoot.gameObject.SetActive(false);
             if (_resultRoot != null) _resultRoot.gameObject.SetActive(false);
@@ -709,35 +677,16 @@ namespace RouletteParty.UI
             rt.offsetMax = Vector2.zero;
         }
 
-        private static int TopicIndex(TopicMode t)
-        {
-            int i = (int)t - 1; // None=-1, Race=0, Height=1, Survive=2
-            if (i < 0 || i > 2) i = 0;
-            return i;
-        }
-
         private static string PhaseKorean(MatchPhase p)
         {
             switch (p)
             {
                 case MatchPhase.Lobby:     return "로비";
                 case MatchPhase.Prep:      return "준비";
-                case MatchPhase.Roulette:  return "룰렛";
                 case MatchPhase.Play:      return "플레이";
                 case MatchPhase.Highlight: return "하이라이트";
                 case MatchPhase.Result:    return "결과";
                 default:                   return "";
-            }
-        }
-
-        private static string TopicKorean(TopicMode t)
-        {
-            switch (t)
-            {
-                case TopicMode.Race:    return "달리기";
-                case TopicMode.Height:  return "높이";
-                case TopicMode.Survive: return "생존";
-                default:                return "";
             }
         }
 

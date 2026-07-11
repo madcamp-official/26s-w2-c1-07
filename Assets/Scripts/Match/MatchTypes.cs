@@ -1,171 +1,61 @@
-using System.Collections.Generic;
 using Unity.Netcode;
 
 namespace RouletteParty.Match
 {
     // =====================================================================================
-    // Day4 match domain types.
-    //
-    // Design (validated by research, NGO 2.13 / Unity 6):
-    //  - Replicated *display* state (phase / round / topic / phase-end-time / alive / winner)
-    //    lives in NetworkVariables on MatchManager (NetworkBehaviour).
-    //  - Per-round *judging* data (peak height, finish time, death time, ...) is SERVER-ONLY
-    //    plain C# (PlayerRuntime), never networked.
-    //  - Judging is a strategy pattern: each mode is a plain server-side C# class (IGameMode).
-    //    MatchManager does the common per-frame sampling; a mode only ranks at round end.
-    //    This keeps modes thin and makes Day5 (vote weighting, detailed 0..1000 scoring) an
-    //    additive change instead of a rewrite.
-    //  - Full per-round rankings are replicated to every client via NetworkList<RoundResult>
-    //    (unmanaged struct) so Day5/Day6 can build the result/leaderboard UI without new RPCs.
+    // 클라이밍 전환(docs/클라이밍_전환_명세서.md) 후의 매치 도메인 타입.
+    // 룰렛/주제/게임 모드(IGameMode·Race/Height/Survive)/Course 는 전부 폐기: 단일 클라이밍 모드.
+    //  - 복제 표시 상태(페이즈/라운드/타이머/승자/맵 시드)는 MatchManager 의 NetworkVariable.
+    //  - 라운드 판정 데이터(체력/사망 높이/정상 도달)는 서버 전용 PlayerRuntime(비복제).
+    //    체력은 플레이어 비공개 정보이므로 절대 복제/표시하지 않는다.
+    //  - 라운드 순위는 기존 NetworkList<RoundResult> 를 그대로 재사용(직렬화 안정).
     // =====================================================================================
 
-    /// <summary>Match phase FSM (LOBBY -> PREP -> [ROULETTE -> PLAY -> HIGHLIGHT] x3 -> RESULT -> loop).</summary>
-    public enum MatchPhase : byte { Lobby, Prep, Roulette, Play, Highlight, Result }
+    /// <summary>매치 FSM: LOBBY -> [PREP -> PLAY -> HIGHLIGHT] x3 -> RESULT -> loop. (룰렛 없음)</summary>
+    public enum MatchPhase : byte { Lobby, Prep, Play, Highlight, Result }
 
-    /// <summary>Round topic / game mode. None is used only for LOBBY/PREP display.</summary>
-    public enum TopicMode : byte { None, Race, Height, Survive }
-
-    /// <summary>Course constants shared 1:1 with the validated web prototype.</summary>
-    public static class Course
+    /// <summary>엔진 전역 상수(라운드 수만 상수, 나머지 튜닝값은 전부 SerializeField).</summary>
+    public static class Climb
     {
-        public const float START_Z       = 68f;    // start line / spawn Z
-        public const float GOAL_Z        = -70f;   // finish line Z (race)
-        public const float DEATH_Y       = -3.7f;  // below this Y = fell into the river (death)
-        public const float SPAWN_Y       = 1.0f;   // safe height on the start line
-        public const float RESPAWN_DELAY = 2f;     // seconds before respawn (race/height)
-        public const int   ROUNDS        = 3;      // rounds per match
+        public const int ROUNDS = 3;
     }
 
     /// <summary>
-    /// Server-only per-player judging data for the current round. NOT networked
-    /// (only the final ranking is replicated, via RoundResult rows). Reused across rounds
-    /// through <see cref="ResetForRound"/>.
+    /// 서버 전용 per-player 라운드 판정 데이터. NOT networked.
+    /// (최종 순위만 RoundResult 행으로 복제된다.)
     /// </summary>
     public class PlayerRuntime
     {
         public ulong ClientId;
-        public int   SpawnIndex;             // start-line slot; reused on respawn so players keep lanes
-        public float PeakY;                  // height mode: highest Y reached during PLAY
-        public bool  Finished;               // race mode: crossed the goal
-        public float FinishTime;             // race: PLAY-elapsed seconds at finish (smaller = better)
-        public float Progress;               // race: best 0..1 course progress (for non-finishers)
-        public bool  Alive = true;           // survive mode: still in; race/height: currently not respawning
-        public float DeathTime;              // PLAY-elapsed seconds at (last) death (survive: bigger = better)
-        public bool  PendingRespawn;         // race/height: waiting to respawn
-        public double RespawnAtServerTime;   // server time at which the pending respawn fires
+        public int   SpawnIndex;
+        public int   Hp;             // 은닉 체력(서버 전용, 비공개)
+        public bool  Alive = true;
+        public float DeathHeight;    // 탈락 지점 높이 -> 점수 계산에 사용
+        public bool  ReachedTop;     // 정상(y >= mapHeight) 도달 여부
+        public float TopTime;        // 정상 도달 시각(PLAY 경과 초, 동률 tie-break)
 
-        public void ResetForRound(float spawnY, int spawnIndex)
+        public void ResetForRound(int hp, int spawnIndex)
         {
+            Hp = hp;
             SpawnIndex = spawnIndex;
-            PeakY = spawnY;
-            Finished = false; FinishTime = 0f; Progress = 0f;
-            Alive = true; DeathTime = 0f;
-            PendingRespawn = false; RespawnAtServerTime = 0d;
-        }
-    }
-
-    /// <summary>Read-only view handed to a mode at round evaluation (HIGHLIGHT entry).</summary>
-    public class MatchContext
-    {
-        public IReadOnlyDictionary<ulong, PlayerRuntime> Players;
-        public float PlayDuration; // effective PLAY seconds (fastMode-scaled) for score normalization
-    }
-
-    /// <summary>One ranked entry produced by a mode: a client and its (higher = better) score.</summary>
-    public struct ModeRank
-    {
-        public ulong ClientId;
-        public float Score;
-        public ModeRank(ulong clientId, float score) { ClientId = clientId; Score = score; }
-    }
-
-    /// <summary>
-    /// Strategy interface for a round mode. Concrete modes are plain server-side C# (no
-    /// NetworkBehaviour). <see cref="Evaluate"/> returns entries ordered best-first (index 0 =
-    /// round winner) with a per-player score (higher = better).
-    /// Day5: add a per-round detailed scorer (clear 70 : obstacle 30, 0..1000) that consumes
-    /// the same MatchContext and accumulates across rounds.
-    /// </summary>
-    public interface IGameMode
-    {
-        TopicMode Topic { get; }
-        bool AllowRespawn { get; }   // false => elimination on death (survive)
-        List<ModeRank> Evaluate(MatchContext ctx);
-    }
-
-    /// <summary>Race: reach the goal. Finishers ranked by earliest finish; non-finishers by progress.</summary>
-    public sealed class RaceMode : IGameMode
-    {
-        public TopicMode Topic => TopicMode.Race;
-        public bool AllowRespawn => true;
-
-        public List<ModeRank> Evaluate(MatchContext ctx)
-        {
-            var ranks = new List<ModeRank>(ctx.Players.Count);
-            foreach (var pr in ctx.Players.Values)
-            {
-                // Finishers always outrank non-finishers (base 1000). Earlier finish => higher score.
-                // Non-finishers score by 0..1 progress, which is always below any finisher.
-                float score = pr.Finished
-                    ? 1000f + (ctx.PlayDuration - pr.FinishTime)
-                    : pr.Progress;
-                ranks.Add(new ModeRank(pr.ClientId, score));
-            }
-            ranks.Sort((a, b) => b.Score.CompareTo(a.Score));
-            return ranks;
-        }
-    }
-
-    /// <summary>Height: highest peak Y wins.</summary>
-    public sealed class HeightMode : IGameMode
-    {
-        public TopicMode Topic => TopicMode.Height;
-        public bool AllowRespawn => true;
-
-        public List<ModeRank> Evaluate(MatchContext ctx)
-        {
-            var ranks = new List<ModeRank>(ctx.Players.Count);
-            foreach (var pr in ctx.Players.Values)
-                ranks.Add(new ModeRank(pr.ClientId, pr.PeakY));
-            ranks.Sort((a, b) => b.Score.CompareTo(a.Score));
-            return ranks;
-        }
-    }
-
-    /// <summary>Survive: no respawn. Survivors beat everyone; among the eliminated, later death is better.</summary>
-    public sealed class SurviveMode : IGameMode
-    {
-        public TopicMode Topic => TopicMode.Survive;
-        public bool AllowRespawn => false;
-
-        public List<ModeRank> Evaluate(MatchContext ctx)
-        {
-            var ranks = new List<ModeRank>(ctx.Players.Count);
-            foreach (var pr in ctx.Players.Values)
-            {
-                // Survivors get a score above the maximum possible death time; eliminated players
-                // score by death time (later = higher).
-                float score = pr.Alive ? (ctx.PlayDuration + 1000f) : pr.DeathTime;
-                ranks.Add(new ModeRank(pr.ClientId, score));
-            }
-            ranks.Sort((a, b) => b.Score.CompareTo(a.Score));
-            return ranks;
+            Alive = true;
+            DeathHeight = 0f;
+            ReachedTop = false;
+            TopTime = 0f;
         }
     }
 
     /// <summary>
-    /// One replicated per-round result row. Lives in NetworkList&lt;RoundResult&gt; so every client
-    /// can render round rankings without extra RPCs.
-    /// NetworkList requires: T : unmanaged, IEquatable&lt;T&gt;. All fields are value types (no
-    /// reference fields) so the struct stays unmanaged. INetworkSerializable pins the wire format.
+    /// 복제되는 라운드 결과 행(기존 구조 유지: NetworkList 직렬화 안정성).
+    /// Topic 필드는 컨셉 전환 후 미사용(0 고정)으로 남겨 와이어 포맷을 보존한다.
     /// </summary>
     public struct RoundResult : INetworkSerializable, System.IEquatable<RoundResult>
     {
         public int   Round;      // 1..ROUNDS
         public ulong ClientId;
         public int   Rank;       // 1 = round winner
-        public float Score;      // mode metric (see each mode's Evaluate)
-        public byte  Topic;      // (TopicMode) as byte
+        public float Score;      // 라운드 총점(높이 점수 + 순위 보너스)
+        public byte  Topic;      // 미사용(0)
 
         public void NetworkSerialize<T>(BufferSerializer<T> s) where T : IReaderWriter
         {

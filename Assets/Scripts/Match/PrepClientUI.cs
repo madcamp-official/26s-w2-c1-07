@@ -1,84 +1,184 @@
 using Unity.Netcode;
 using UnityEngine;
-using UnityEngine.InputSystem; // 새 Input System (Keyboard.current / Mouse.current)
+using UnityEngine.InputSystem; // 새 Input System
 
 namespace RouletteParty.Match
 {
     /// <summary>
-    /// PREP 클라이언트 UI. 씬의 단일 GameObject 에 부착한다(호스트/클라 공용).
+    /// PREP 구조물 설치 클라 UI. 씬의 단일 GameObject 에 부착(호스트/클라 공용).
     ///
-    /// 전 페이즈가 마우스룩 조준 시점(커서 잠금)이므로, PREP 조작은 자유 커서에 의존하지 않는다:
-    ///  - 장애물 종류: 숫자키 1/2/3 (벽/원기둥/투명벽)
-    ///  - 배치: 화면 중앙 조준점에 좌클릭 -> 카메라 중앙 레이캐스트 히트점을 서버에 요청.
-    ///          커서가 잠긴 상태에서만 배치(Esc 로 커서 푼 메뉴 모드에서는 배치 안 함).
-    ///  - 주제 투표: 숫자키 4/5/6 (달리기/높이/생존) + 실시간 표수(서버 복제 NetworkVariable) 표시.
-    ///  - OnGUI 패널은 상태·키 안내 표시용(클릭 버튼 아님).
-    ///
-    /// 검증/스폰은 서버가 한다(검증 실패는 조용히 거부). 비소유 클라도
-    /// [Rpc(SendTo.Server, InvokePermission=Everyone)] 를 호출할 수 있다.
+    /// PREP 동안 플레이어는 자유 비행 카메라(PlayerController)로 맵을 날아다니고, 이 컴포넌트가:
+    ///  - 종류 선택: 1(벽)/2(원기둥) = 보이는 구조물, 3 = 보이지 않는 구조물. R = 90도 회전.
+    ///  - 설치: 화면 중앙 조준점 레이캐스트 히트점에 좌클릭 -> PlaceStructureServerRpc.
+    ///  - 프리뷰: 조준점 위치에 반투명 고스트(볼륨 안 + 잔여 개수 있으면 초록, 아니면 빨강).
+    ///  - 잔여 개수: 라운드 지급량 - 이번 PREP 에 설치한 수(이월 없음). 스폰된 내 구조물 수의
+    ///    PREP 시작 스냅샷 대비 증가분으로 계산(서버 확정 결과와 일치).
     /// </summary>
     [DisallowMultipleComponent]
     public class PrepClientUI : MonoBehaviour
     {
-        [Tooltip("지면 레이캐스트 대상 레이어. 기본은 전체(~0). 지형에 'Ground' 레이어를 두면 여기서 좁히는 것을 권장.")]
-        [SerializeField] private LayerMask _groundMask = ~0;
-        [Tooltip("레이캐스트 최대 거리.")]
-        [SerializeField] private float _rayDistance = 500f;
+        [Tooltip("설치 레이캐스트 최대 거리.")]
+        [SerializeField] private float _rayDistance = 200f;
+        [Tooltip("프리뷰 색(설치 가능).")]
+        [SerializeField] private Color _okColor = new Color(0.3f, 1f, 0.4f, 0.45f);
+        [Tooltip("프리뷰 색(설치 불가).")]
+        [SerializeField] private Color _badColor = new Color(1f, 0.3f, 0.3f, 0.45f);
 
         private ObstacleType _selected = ObstacleType.Wall;
-        private TopicMode _myVote = TopicMode.None;
+        private int _yawStep;
 
-        // 좌상단 NetworkBootstrap(y:10..280) 아래에 배치. 정보/안내 표시용.
-        private readonly Rect _panelRect = new Rect(10, 290, 300, 220);
+        // PREP 시작 시 내 구조물 수 스냅샷(잔여 계산용)
+        private bool _inPrep;
+        private int _baseVisible, _baseInvisible;
+
+        // 프리뷰
+        private GameObject _previewBox, _previewCyl;
+        private Material _previewMat;
+
+        private readonly Rect _panelRect = new Rect(10, 290, 300, 210);
         private GUIStyle _rich;
 
-        // MatchManager 가 스폰되어 있고, 현재 PREP 페이즈일 때만 UI/입력을 활성화.
         private bool Active =>
             MatchManager.Instance != null &&
             MatchManager.Instance.IsSpawned &&
             MatchManager.Instance.CurrentPhase == MatchPhase.Prep;
 
-        // ============================ 입력 ============================
         private void Update()
         {
-            if (!Active) return;
+            bool active = Active;
 
-            // (a) 숫자키: 장애물 종류 선택 + 주제 투표.
+            // PREP 진입/이탈 감지: 스냅샷 갱신 + 프리뷰 정리.
+            if (active && !_inPrep)
+            {
+                _inPrep = true;
+                CountMine(out _baseVisible, out _baseInvisible);
+            }
+            else if (!active && _inPrep)
+            {
+                _inPrep = false;
+                HidePreview();
+            }
+            if (!active) return;
+
             var kb = Keyboard.current;
             if (kb != null)
             {
                 if (kb.digit1Key.wasPressedThisFrame) _selected = ObstacleType.Wall;
                 else if (kb.digit2Key.wasPressedThisFrame) _selected = ObstacleType.Cylinder;
                 else if (kb.digit3Key.wasPressedThisFrame) _selected = ObstacleType.Ghost;
-
-                if (kb.digit4Key.wasPressedThisFrame) CastVote(TopicMode.Race);
-                else if (kb.digit5Key.wasPressedThisFrame) CastVote(TopicMode.Height);
-                else if (kb.digit6Key.wasPressedThisFrame) CastVote(TopicMode.Survive);
+                if (kb.rKey.wasPressedThisFrame) _yawStep = (_yawStep + 1) & 3;
             }
 
-            // (b) 좌클릭: 화면 중앙(조준점)에서 지면 레이캐스트 -> 배치 요청.
+            // 조준점 = 로컬 PlayerController 의 AimPoint(자기 몸 콜라이더 제외 처리 완료).
+            var pc = LocalPlayer();
+            if (pc == null) { HidePreview(); return; }
+            Vector3 point = pc.AimPoint;
+
+            bool invisible = _selected == ObstacleType.Ghost;
+            int remaining = invisible ? RemainingInvisible() : RemainingVisible();
+            var gen = ClimbMapGenerator.Instance;
+            bool ok = remaining > 0 && gen != null && gen.InsideVolume(point, 0.1f);
+
+            ShowPreview(point, ok);
+
             var mouse = Mouse.current;
-            if (mouse == null || !mouse.leftButton.wasPressedThisFrame) return;
-            if (Cursor.lockState != CursorLockMode.Locked) return; // 커서 푼 상태(메뉴)면 배치 안 함
-            if (MyObstacleCount() >= MatchManager.Instance.MaxPerPlayer) return;
-
-            Camera cam = Camera.main; // 로컬 플레이어 카메라(MainCamera 태그 필요)
-            if (cam == null) return;
-
-            // 조준점 = 화면 중앙. 카메라 전방과 일치.
-            Vector2 center = new Vector2(Screen.width * 0.5f, Screen.height * 0.5f);
-            Ray ray = cam.ScreenPointToRay(center);
-            if (Physics.Raycast(ray, out RaycastHit hit, _rayDistance, _groundMask, QueryTriggerInteraction.Ignore))
+            if (ok && mouse != null && mouse.leftButton.wasPressedThisFrame &&
+                Cursor.lockState == CursorLockMode.Locked)
             {
-                // 서버에 배치 요청(검증+스폰은 서버). byte 로 캐스팅해 전송.
-                MatchManager.Instance.PlaceObstacleServerRpc(hit.point, (byte)_selected);
+                MatchManager.Instance.PlaceStructureServerRpc(point, (byte)_yawStep, (byte)_selected);
             }
         }
 
-        private void CastVote(TopicMode topic)
+        private RouletteParty.Net.PlayerController LocalPlayer()
         {
-            _myVote = topic;
-            MatchManager.Instance.VoteServerRpc((byte)topic); // 클라 -> 서버 집계
+            var nm = NetworkManager.Singleton;
+            var po = (nm != null && nm.LocalClient != null) ? nm.LocalClient.PlayerObject : null;
+            return po != null ? po.GetComponent<RouletteParty.Net.PlayerController>() : null;
+        }
+
+        // ============================ 잔여 개수 ============================
+        private int RemainingVisible()
+        {
+            CountMine(out int vis, out _);
+            return Mathf.Max(0, MatchManager.Instance.VisibleGrant - (vis - _baseVisible));
+        }
+
+        private int RemainingInvisible()
+        {
+            CountMine(out _, out int invis);
+            return Mathf.Max(0, MatchManager.Instance.InvisibleGrant - (invis - _baseInvisible));
+        }
+
+        // 스폰된 내 구조물 수(서버 확정 결과 반영: 거부된 요청은 안 셈).
+        private void CountMine(out int visible, out int invisible)
+        {
+            visible = 0; invisible = 0;
+            var nm = NetworkManager.Singleton;
+            if (nm == null) return;
+            ulong me = nm.LocalClientId;
+
+            var all = Object.FindObjectsByType<Obstacle>();
+            foreach (var ob in all)
+            {
+                if (!ob.IsSpawned || ob.OwnerId.Value != me) continue;
+                if (ob.IsInvisibleKind) invisible++;
+                else visible++;
+            }
+        }
+
+        // ============================ 프리뷰 ============================
+        private void EnsurePreview()
+        {
+            if (_previewMat == null)
+            {
+                // Sprites/Default: 알파 지원 + 항상 포함 셰이더 -> 런타임 반투명 프리뷰에 안전.
+                _previewMat = new Material(Shader.Find("Sprites/Default"));
+            }
+            if (_previewBox == null)
+            {
+                _previewBox = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                _previewBox.name = "PlacePreview_Box";
+                Destroy(_previewBox.GetComponent<Collider>());
+                _previewBox.GetComponent<MeshRenderer>().sharedMaterial = _previewMat;
+                _previewBox.SetActive(false);
+            }
+            if (_previewCyl == null)
+            {
+                _previewCyl = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+                _previewCyl.name = "PlacePreview_Cyl";
+                Destroy(_previewCyl.GetComponent<Collider>());
+                _previewCyl.GetComponent<MeshRenderer>().sharedMaterial = _previewMat;
+                _previewCyl.SetActive(false);
+            }
+        }
+
+        private void ShowPreview(Vector3 basePos, bool ok)
+        {
+            EnsurePreview();
+            _previewMat.color = ok ? _okColor : _badColor;
+
+            bool cyl = _selected == ObstacleType.Cylinder;
+            _previewBox.SetActive(!cyl);
+            _previewCyl.SetActive(cyl);
+
+            // 프리팹 실루엣 근사: 벽/투명벽 = (3,2,0.5) 박스(피벗 바닥), 원기둥 = 지름 1.6 높이 2.
+            var rot = Quaternion.Euler(0f, _yawStep * 90f, 0f);
+            if (cyl)
+            {
+                _previewCyl.transform.localScale = new Vector3(1.6f, 1f, 1.6f);
+                _previewCyl.transform.SetPositionAndRotation(basePos + Vector3.up * 1f, rot);
+            }
+            else
+            {
+                _previewBox.transform.localScale = new Vector3(3f, 2f, 0.5f);
+                _previewBox.transform.SetPositionAndRotation(basePos + Vector3.up * 1f, rot);
+            }
+        }
+
+        private void HidePreview()
+        {
+            if (_previewBox != null) _previewBox.SetActive(false);
+            if (_previewCyl != null) _previewCyl.SetActive(false);
         }
 
         // ============================ OnGUI (정보/안내) ============================
@@ -87,24 +187,18 @@ namespace RouletteParty.Match
             if (!Active) return;
             if (_rich == null) _rich = new GUIStyle(GUI.skin.label) { richText = true };
 
-            var mm = MatchManager.Instance;
-            int remaining = Mathf.Max(0, mm.MaxPerPlayer - MyObstacleCount());
-
             GUILayout.BeginArea(_panelRect, GUI.skin.box);
-            GUILayout.Label("<b>PREP</b> — 장애물 배치 & 투표", _rich);
+            GUILayout.Label("<b>준비</b> — 구조물 설치 (자유 비행)", _rich);
+            GUILayout.Label("비행: WASD + 마우스, Space 상승 / Ctrl 하강", _rich);
 
-            // (a) 장애물 팔레트(숫자키)
-            GUILayout.Label($"장애물 종류: <b>[1]</b> 벽  <b>[2]</b> 원기둥  <b>[3]</b> 투명벽", _rich);
-            GUILayout.Label($"선택: <b>{TypeKorean(_selected)}</b>", _rich);
-            GUILayout.Label($"화면 중앙 조준점에 <b>좌클릭</b>으로 배치 (남은 {remaining}/{mm.MaxPerPlayer})", _rich);
+            GUILayout.Space(4);
+            GUILayout.Label($"종류  <b>[1]</b> 벽  <b>[2]</b> 원기둥  <b>[3]</b> 투명(안 보임)", _rich);
+            GUILayout.Label($"선택: <b>{TypeKorean(_selected)}</b>   회전 <b>[R]</b> ({_yawStep * 90}°)", _rich);
 
-            GUILayout.Space(6);
-
-            // (b) 주제 투표(숫자키) + 실시간 표수(서버 복제 NetworkVariable)
-            GUILayout.Label($"주제 투표: <b>[4]</b> 달리기  <b>[5]</b> 높이  <b>[6]</b> 생존", _rich);
-            GUILayout.Label($"표수  달리기 {mm.RaceVotes.Value} / 높이 {mm.HeightVotes.Value} / 생존 {mm.SurviveVotes.Value}");
-            GUILayout.Label($"내 투표: <b>{TopicKorean(_myVote)}</b>", _rich);
-
+            GUILayout.Space(4);
+            GUILayout.Label($"남은 개수  보이는 <b>{RemainingVisible()}</b>/{MatchManager.Instance.VisibleGrant}" +
+                            $"   안 보이는 <b>{RemainingInvisible()}</b>/{MatchManager.Instance.InvisibleGrant}", _rich);
+            GUILayout.Label("조준점에 <b>좌클릭</b>으로 설치 (설치물은 3라운드 누적)", _rich);
             GUILayout.EndArea();
         }
 
@@ -112,37 +206,11 @@ namespace RouletteParty.Match
         {
             switch (t)
             {
-                case ObstacleType.Wall:     return "벽";
-                case ObstacleType.Cylinder: return "원기둥";
-                case ObstacleType.Ghost:    return "투명벽";
+                case ObstacleType.Wall:     return "벽 (보이는)";
+                case ObstacleType.Cylinder: return "원기둥 (보이는)";
+                case ObstacleType.Ghost:    return "투명 (안 보이는)";
                 default:                    return "-";
             }
-        }
-
-        private static string TopicKorean(TopicMode t)
-        {
-            switch (t)
-            {
-                case TopicMode.Race:    return "달리기";
-                case TopicMode.Height:  return "높이";
-                case TopicMode.Survive: return "생존";
-                default:                return "-";
-            }
-        }
-
-        // 현재 씬에 스폰된 "내 소유" 장애물 수. 서버가 확정한 실제 스폰 결과를 반영하므로
-        // 거부된 요청은 세지 않는다(정확). Unity 6: FindObjectsByType.
-        private int MyObstacleCount()
-        {
-            var nm = NetworkManager.Singleton;
-            if (nm == null) return 0;
-            ulong me = nm.LocalClientId;
-
-            int n = 0;
-            var all = Object.FindObjectsByType<Obstacle>(); // 정렬 불필요(개수만 셈)
-            foreach (var ob in all)
-                if (ob.IsSpawned && ob.OwnerId.Value == me) n++;
-            return n;
         }
     }
 }

@@ -3,52 +3,54 @@ using UnityEngine;
 
 namespace RouletteParty.Match
 {
-    /// <summary>장애물 종류. byte 백킹 enum -> NetworkVariable / RPC 인자에 그대로 직렬화 가능(unmanaged).</summary>
+    /// <summary>
+    /// 구조물 종류. Wall/Cylinder = 보이는 구조물, Ghost = 보이지 않는 구조물.
+    /// byte 백킹 -> RPC/NetworkVariable 직렬화 그대로 사용.
+    /// </summary>
     public enum ObstacleType : byte { Wall = 0, Cylinder = 1, Ghost = 2 }
 
     /// <summary>
-    /// 동적으로 스폰되는 장애물 프리팹(루트에 NetworkObject)에 부착하는 컴포넌트.
+    /// 구조물(플레이어가 설치하는 Object). 클라이밍 전환 명세 6절의 가시성 규칙 구현.
     ///
-    /// 설계 (리서치 검증, NGO 2.13 / Unity 6):
-    ///  - 오브젝트의 네트워크 소유권은 "서버(호스트)"다. 누가 놓았는지는 <see cref="OwnerId"/>
-    ///    NetworkVariable 로 따로 기록한다. (SpawnWithOwnership 로 클라에 소유권을 주면
-    ///    ClientNetworkTransform/권위 이슈가 생기므로 프로젝트 규약상 금지.)
-    ///  - <see cref="Type"/>/<see cref="OwnerId"/> 는 서버가 반드시 Spawn() '이전'에 세팅한다
-    ///    (ServerInit). 그래야 초기 스폰 페이로드에 값이 실려 전 클라가 스폰 즉시 올바른
-    ///    종류/소유자를 본다. (Spawn 이후 세팅하면 issue #3876 레이스로 한 프레임 잘못 렌더링.)
-    ///  - GHOST(투명벽) 공정성: 콜라이더는 절대 끄지 않는다. 모두 같은 물리로 막힌다.
-    ///    렌더러만 클라별로 분기해서 타인에겐 안 보이고, 소유자에겐(반투명 머티리얼이 있으면)
-    ///    흐릿하게 보인다. 물리는 전원 동일.
-    ///
-    /// 콜라이더는 각 프리팹에 미리 붙여 두고(WALL/GHOST=BoxCollider, CYLINDER=CapsuleCollider,
-    /// isTrigger=false, Rigidbody 없음) 항상 켜진 상태로 둔다 -> 이 스크립트는 콜라이더를
-    /// 만지지 않는다(설정 실수 여지 최소화). 렌더러만 제어한다.
+    ///  - 콜라이더는 모든 클라에서 항상 켜져 있다(물리 공정성, 기존 규약 유지). 렌더러만 분기.
+    ///  - 보이는 구조물(Wall/Cylinder): 생성 후 어떤 페이즈에서도 전원에게 보임(분기 없음).
+    ///  - 보이지 않는 구조물(Ghost):
+    ///      PREP + 설치자 본인      -> 보임(반투명 머티리얼이 있으면 반투명)
+    ///      그 외 페이즈/타인       -> 안 보임(설치자 본인 포함)
+    ///      플레이어 충돌(상호작용) -> 서버가 RevealUntil 기록, 그 시각까지 전원에게 보임
+    ///  - Type/OwnerId 는 서버가 Spawn() 이전에 세팅(ServerInit)해 초기 동기화에 싣는다.
     /// </summary>
     [RequireComponent(typeof(NetworkObject))]
     public class Obstacle : NetworkBehaviour
     {
-        [Header("GHOST 렌더 제어용 (WALL/CYLINDER 프리팹은 비워도 됨)")]
-        [Tooltip("GHOST 프리팹의 메시 렌더러들. 타인에게는 숨기고 소유자에게는 (반투명 머티리얼이 있으면) 보여준다.")]
+        [Header("GHOST(보이지 않는 구조물) 렌더 제어 (Wall/Cylinder 프리팹은 비워도 됨)")]
+        [Tooltip("가시성 분기 대상 렌더러들. Ghost 프리팹에서만 필요.")]
         [SerializeField] private Renderer[] _renderers;
 
-        [Tooltip("선택: GHOST 소유자가 볼 반투명 머티리얼(URP Surface=Transparent). 비우면 소유자에게도 숨긴다.")]
+        [Tooltip("선택: PREP 중 설치자에게 보여줄 반투명 머티리얼. 비우면 원본 머티리얼로 보인다.")]
         [SerializeField] private Material _ghostOwnerMaterial;
 
-        // 기본 권한 { Read: Everyone, Write: Server } — 서버가 쓰고 전 클라가 읽는 이 용도에 정확히 맞음.
-        // (Owner/Owner 조합은 서버 값 미갱신 버그(#2094)가 있으니 쓰지 않는다.)
+        [Tooltip("플레이어 상호작용(충돌) 시 전원에게 공개되는 시간(초). 연속 충돌은 연장된다.")]
+        [SerializeField] private float _revealDuration = 2f;
+        public float RevealDuration => _revealDuration;
+
+        // 기본 권한 { Read: Everyone, Write: Server }.
         public NetworkVariable<byte>  Type    = new NetworkVariable<byte>(
             0, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
         public NetworkVariable<ulong> OwnerId = new NetworkVariable<ulong>(
             0, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
+        // 이 서버 시각까지 전원에게 공개(보이지 않는 구조물 전용). 서버만 write.
+        public NetworkVariable<double> RevealUntil = new NetworkVariable<double>(
+            0d, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
 
-        /// <summary>편의 프로퍼티: 현재 종류.</summary>
         public ObstacleType ObType => (ObstacleType)Type.Value;
+        public bool IsInvisibleKind => ObType == ObstacleType.Ghost;
 
-        /// <summary>
-        /// 서버 전용. Instantiate 직후, Spawn() '이전'에 호출해 종류/소유자를 확정한다.
-        /// 이 시점엔 "written to, but doesn't know its NetworkBehaviour yet" 경고가 뜰 수 있으나
-        /// 무해하며 값은 초기 스폰 동기화에 그대로 포함된다(Unity 개발자 확인).
-        /// </summary>
+        // 원본 머티리얼 캐시(반투명 <-> 원본 전환용)
+        Material[] _originalMats;
+        int _lastState = -1; // 0=숨김, 1=반투명(설치자 PREP), 2=원본(공개/보이는 구조물)
+
+        /// <summary>서버 전용. Instantiate 직후, Spawn() 이전에 호출해 종류/설치자를 확정한다.</summary>
         public void ServerInit(ObstacleType type, ulong owner)
         {
             Type.Value    = (byte)type;
@@ -57,46 +59,65 @@ namespace RouletteParty.Match
 
         public override void OnNetworkSpawn()
         {
-            // Spawn 전에 세팅했으므로 여기서 값은 이미 도착해 있다.
-            // 초기값 레이스에 대비해 OnValueChanged 도 방어적으로 구독.
-            Type.OnValueChanged    += OnTypeChanged;
-            OwnerId.OnValueChanged += OnOwnerChanged;
-            ApplyVisual();
+            if (_renderers != null && _renderers.Length > 0)
+            {
+                _originalMats = new Material[_renderers.Length];
+                for (int i = 0; i < _renderers.Length; i++)
+                    if (_renderers[i] != null) _originalMats[i] = _renderers[i].sharedMaterial;
+            }
+            _lastState = -1; // 첫 프레임에 강제 적용
         }
 
-        public override void OnNetworkDespawn()
+        // 가시성은 페이즈·RevealUntil(시간)에 의존하므로 이벤트가 아니라 매 프레임 평가한다.
+        // (상태 전환 시에만 렌더러를 만지므로 비용은 미미)
+        void Update()
         {
-            Type.OnValueChanged    -= OnTypeChanged;
-            OwnerId.OnValueChanged -= OnOwnerChanged;
+            if (!IsSpawned) return;
+            if (!IsInvisibleKind) return; // 보이는 구조물은 프리팹 기본 렌더 그대로
+
+            int state = ComputeState();
+            if (state == _lastState) return;
+            _lastState = state;
+            ApplyState(state);
         }
 
-        private void OnTypeChanged(byte _, byte __)   => ApplyVisual();
-        private void OnOwnerChanged(ulong _, ulong __) => ApplyVisual();
-
-        /// <summary>
-        /// 순수 클라측 시각 분기. 콜라이더는 건드리지 않는다(물리는 전원 동일 = 공정).
-        /// WALL/CYLINDER: 렌더러 그대로(프리팹 기본). GHOST: 소유자 외에는 렌더러 off.
-        /// </summary>
-        private void ApplyVisual()
+        int ComputeState()
         {
-            if (ObType != ObstacleType.Ghost)
-                return; // WALL/CYLINDER 는 프리팹 렌더링 그대로 사용
+            // 충돌 공개 중이면 전원에게 원본으로 보임(최우선).
+            if (NetworkManager != null && NetworkManager.ServerTime.Time < RevealUntil.Value)
+                return 2;
 
-            // "소유자"는 NetworkObject 소유권(=호스트)이 아니라 커스텀 OwnerId 로 판별해야 한다.
+            // PREP + 설치자 본인 -> 반투명 표시.
+            var mm = MatchManager.Instance;
+            bool prep = mm != null && mm.IsSpawned && mm.CurrentPhase == MatchPhase.Prep;
             bool mine = NetworkManager.Singleton != null &&
                         OwnerId.Value == NetworkManager.Singleton.LocalClientId;
+            if (prep && mine) return 1;
 
-            foreach (var r in _renderers)
+            return 0; // 그 외 전부 숨김(설치자 본인 포함)
+        }
+
+        void ApplyState(int state)
+        {
+            if (_renderers == null) return;
+            for (int i = 0; i < _renderers.Length; i++)
             {
+                var r = _renderers[i];
                 if (r == null) continue;
-                if (mine && _ghostOwnerMaterial != null)
+                switch (state)
                 {
-                    r.enabled = true;
-                    r.sharedMaterial = _ghostOwnerMaterial; // 소유자: 반투명으로 흐릿하게
-                }
-                else
-                {
-                    r.enabled = false; // 타인(또는 머티리얼 미지정 소유자): 완전 비가시(콜라이더만 존재)
+                    case 0:
+                        r.enabled = false;
+                        break;
+                    case 1:
+                        r.enabled = true;
+                        if (_ghostOwnerMaterial != null) r.sharedMaterial = _ghostOwnerMaterial;
+                        else if (_originalMats != null && _originalMats[i] != null) r.sharedMaterial = _originalMats[i];
+                        break;
+                    case 2:
+                        r.enabled = true;
+                        if (_originalMats != null && _originalMats[i] != null) r.sharedMaterial = _originalMats[i];
+                        break;
                 }
             }
         }

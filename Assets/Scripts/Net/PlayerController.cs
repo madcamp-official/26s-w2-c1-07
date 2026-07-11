@@ -4,92 +4,118 @@ using Unity.Netcode;
 using Unity.Netcode.Components;
 using UnityEngine;
 using UnityEngine.InputSystem; // 새 Input System (Keyboard.current / Mouse.current)
+using RouletteParty.Match;      // MatchManager, MatchPhase, Obstacle
 
 /// <summary>
-/// 소유자 권위(ClientNetworkTransform) 3인칭 플레이어. 카메라·입력·조준은 전부 소유자 로컬.
+/// 소유자 권위(ClientNetworkTransform) 3인칭 플레이어. 클라이밍 전환 명세 4절 구현.
 ///
-/// 이중 카메라 모드:
-///   (A) 조준모드(기본, 모든 페이즈): 배그식 3인칭 마우스룩. 마우스로 카메라(=조준)를 궤도 회전,
-///       화면 중앙 조준점, 이동은 카메라 기준 스트레이프, 몸은 카메라 yaw 를 향함, 커서 잠금.
-///   (B) 후방추적(보존): 기존 동작. 카메라가 이동방향을 뒤에서 추적, 몸은 이동방향으로 회전.
+/// 모드(소유자 로컬, 페이즈에 따라 자동 전환):
+///  (A) 등반(PLAY 등): 배그식 3인칭 마우스룩. 점프 dy 최대 = jumpHeight(1).
+///      낙하 추적: 공중 최고점 - 착지점 >= fallReportMin 이면 서버에 보고(ReportFallServerRpc).
+///      체력·사망 판정은 서버(MatchManager)가 한다(체력은 비공개 정보라 클라는 모른다).
+///  (B) 준비(PREP): 본체는 바닥에 잠금, 자유 비행 고스트 카메라(WASD+마우스룩+Space/Ctrl)로
+///      맵 볼륨을 날며 구조물을 설치한다(설치 자체는 PrepClientUI).
+///  (C) 탈락(Dead): 입력 잠금, 본체 렌더·콜라이더 off, 카메라는 생존자 추적 관전(좌클릭 순환).
 ///
-/// 활성 판정: useAimView(기본 true) 면 모든 페이즈에서 (A). false 로 두면 (B) 후방추적으로 전환.
-/// 준비(PREP) 조작은 잠긴 커서에 맞춰 숫자키+조준점 방식(PrepClientUI)이다.
-/// 상세는 docs/조준_시점_명세서.md 참고.
-///
-/// 이동/부활/낙사 판정은 여전히 소유자(권위) 로컬에서만. 낙사→부활 배치는 MatchManager 가 RPC 로 호출.
+/// Dead 는 서버가 쓰는 NetworkVariable 로 전 클라에 전파된다(렌더 분기·관전 필터의 근거).
+/// 보이지 않는 구조물과 충돌하면 RevealStructureServerRpc 로 전원 일시 공개를 요청한다.
 /// </summary>
 [RequireComponent(typeof(CharacterController))]
 public class PlayerController : NetworkBehaviour
 {
     [Header("이동")]
     public float moveSpeed = 6f;
-    public float jumpHeight = 1.5f;
+    [Tooltip("점프로 도달하는 dy 최댓값(명세: 1).")]
+    public float jumpHeight = 1f;
     public float gravity = -20f;
     [Tooltip("(후방추적 전용) 이동 방향으로 몸을 돌리는 속도.")]
     public float turnSpeed = 12f;
 
+    [Header("낙하 보고")]
+    [Tooltip("이 높이 이상 낙하 착지 시 서버에 보고한다(데미지 계산·차감은 서버).")]
+    public float fallReportMin = 3f;
+
     [Header("카메라(공통)")]
-    public float camHeight = 2.4f;          // 피벗(머리) 높이
+    public float camHeight = 2.4f;
     public float camSphereRadius = 0.3f;
-    public float camMinDistance = 0.8f;     // 벽에 붙어도 이보다 가깝겐 안 옴
-    public float camCollisionSkin = 0.2f;   // 표면에서 살짝 띄우기
-    [Tooltip("카메라 오클루전용 LayerMask. 비워두면(Nothing) 스폰 시 'Ground' 레이어로 자동 설정된다.")]
+    public float camMinDistance = 0.8f;
+    public float camCollisionSkin = 0.2f;
+    [Tooltip("카메라 오클루전용 LayerMask. 비워두면(Nothing) 스폰 시 'Ground' 레이어로 자동 설정.")]
     public LayerMask camCollisionMask;
 
-    [Header("후방추적 카메라(비조준: 준비/로비/결과 등)")]
+    [Header("후방추적 카메라(보존)")]
     public float camDistance = 6f;
-    public float camPitch = 18f;            // 아래로 내려다보는 각도(deg)
+    public float camPitch = 18f;
 
     [Header("마우스룩 조준")]
-    [Tooltip("켜면 모든 페이즈에서 마우스룩 조준 시점. 끄면 옛 후방추적 시점(보존용).")]
+    [Tooltip("켜면 마우스룩 조준 시점. 끄면 옛 후방추적 시점(보존용).")]
     public bool useAimView = true;
-    [Tooltip("마우스 감도(픽셀 delta 에 곱함).")]
     public float mouseSensitivity = 0.12f;
     public bool invertY = false;
-    public float aimMinPitch = -35f;        // 위로 볼 수 있는 한계(음수=위)
-    public float aimMaxPitch = 70f;         // 아래로 볼 수 있는 한계
-    public float aimDistance = 4.5f;        // 조준 카메라 거리
-    public float aimShoulder = 0.7f;        // 오른쪽 어깨 오프셋(캐릭터를 화면 중앙에서 비켜 배치)
-    public float aimHeight = 1.6f;          // 조준 피벗 높이(머리 근처)
-    [Tooltip("첫 조준 진입(스폰) 시 코스(-Z, 골 방향)를 바라보도록 초기 yaw 를 180 으로 맞춘다.")]
-    public bool faceCourseOnAimStart = true;
-    [Tooltip("조준 레이(발사 확장용) 최대 거리.")]
+    public float aimMinPitch = -35f;
+    public float aimMaxPitch = 70f;
+    public float aimDistance = 4.5f;
+    public float aimShoulder = 0.7f;
+    public float aimHeight = 1.6f;
+    [Tooltip("조준 레이(설치/확장용) 최대 거리.")]
     public float aimRayDistance = 500f;
 
-    // ---- 발사 확장 훅(소유자 로컬에서 매 프레임 갱신, 이번 범위에선 소비처 없음) ----
+    [Header("준비 페이즈 비행 카메라")]
+    [Tooltip("PREP 자유 비행 속도.")]
+    public float flySpeed = 8f;
+
+    // ---- 상태 접근점 ----
     public bool IsAiming { get; private set; }
     public Ray AimRay { get; private set; }
     public Vector3 AimPoint { get; private set; }
+    /// <summary>탈락 여부(서버 write, 전 클라 read). 렌더·콜라이더·입력·관전의 단일 근거.</summary>
+    public NetworkVariable<bool> Dead = new NetworkVariable<bool>(
+        false, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
 
     // 캐시
     CharacterController _cc;
-    NetworkTransform _net;   // ClientNetworkTransform 도 이 타입으로 잡힘
+    NetworkTransform _net;
     Camera _cam;
+    Renderer[] _bodyRenderers;
     float _verticalVelocity;
 
     // 마우스룩 상태
     float _yaw;
     float _pitch;
-    bool _wasAiming;
-    bool _cursorFreeOverride;    // Esc 로 수동 커서 해제
+    bool _cursorFreeOverride;
 
-    // 조준 레이 self-hit 방지용 버퍼(정렬 보장 안 되므로 최소거리 직접 선택)
+    // 낙하 추적(소유자)
+    float _airApexY;
+    bool _wasAirborne;
+
+    // 준비 비행(소유자)
+    bool _flying;
+    Vector3 _flyPos;
+
+    // 관전(소유자·탈락 시)
+    int _spectateIndex;
+
+    // 보이지 않는 구조물 공개 요청 스로틀
+    double _nextRevealTime;
+
     static readonly RaycastHit[] _rayBuf = new RaycastHit[8];
 
     public override void OnNetworkSpawn()
     {
         _cc  = GetComponent<CharacterController>();
-        _net = GetComponent<NetworkTransform>(); // ClientNetworkTransform(서브클래스)
+        _net = GetComponent<NetworkTransform>();
+        _bodyRenderers = GetComponentsInChildren<Renderer>(true);
+
+        Dead.OnValueChanged += OnDeadChanged;
+        ApplyDeadVisual(Dead.Value);
 
         if (IsOwner)
         {
-            _cam   = Camera.main; // Camera.main 은 비싸므로 한 번만 캐시
+            _cam   = Camera.main;
             _yaw   = transform.eulerAngles.y;
             _pitch = camPitch;
+            _airApexY = transform.position.y;
 
-            // 오클루전 마스크 미지정 시 맵(Ground 레이어) 대상으로 자동 설정.
-            // (레이어가 없으면 GetMask=0 -> 오클루전 생략, 기존과 동일)
             if (camCollisionMask.value == 0)
                 camCollisionMask = LayerMask.GetMask("Ground");
         }
@@ -97,34 +123,78 @@ public class PlayerController : NetworkBehaviour
 
     public override void OnNetworkDespawn()
     {
-        if (IsOwner) SetCursor(false); // 커서 상태 복구(잠금 해제)
+        Dead.OnValueChanged -= OnDeadChanged;
+        if (IsOwner) SetCursor(false);
     }
 
-    // 모든 페이즈에서 조준 시점을 쓴다. 비조준(후방추적)은 보존만 하고 useAimView 로 전환 가능.
-    bool AimActive() => useAimView;
+    // ============================ 탈락 상태 (전 클라) ============================
+    void OnDeadChanged(bool _, bool now) => ApplyDeadVisual(now);
+
+    void ApplyDeadVisual(bool dead)
+    {
+        // 본체 렌더 off + 콜라이더(CC) off: 좁은 발판에서 시체가 길을 막지 않게.
+        if (_bodyRenderers != null)
+            foreach (var r in _bodyRenderers)
+                if (r != null) r.enabled = !dead;
+        if (_cc == null) _cc = GetComponent<CharacterController>();
+        if (_cc != null) _cc.enabled = !dead;
+        if (dead) _verticalVelocity = 0f;
+    }
+
+    MatchPhase Phase()
+    {
+        var mm = MatchManager.Instance;
+        return (mm != null && mm.IsSpawned) ? mm.CurrentPhase : MatchPhase.Play; // 매치 없으면 자유 등반 테스트
+    }
 
     void Update()
     {
-        // 스폰된 소유자(=권위)만 처리. IsSpawned 로 스폰 전 프레임 차단.
         if (!IsSpawned || !IsOwner) return;
 
-        bool aim = AimActive();
+        MatchPhase phase = Phase();
+        bool aim = useAimView;
         HandleCursor(aim);
+        IsAiming = aim;
 
+        // (C) 탈락: 입력 잠금 + 관전 대상 순환(좌클릭).
+        if (Dead.Value)
+        {
+            _flying = false;
+            HandleMouseLook();
+            var mouse = Mouse.current;
+            if (mouse != null && mouse.leftButton.wasPressedThisFrame && !_cursorFreeOverride)
+                _spectateIndex++;
+            return;
+        }
+
+        // (B) 준비: 본체 잠금 + 비행 카메라 이동.
+        if (phase == MatchPhase.Prep)
+        {
+            if (!_flying)
+            {
+                _flying = true;
+                _flyPos = _cam != null ? _cam.transform.position
+                                       : transform.position + Vector3.up * 3f;
+            }
+            HandleMouseLook();
+            HandleFlyMove();
+            if (_cc != null && _cc.enabled) ApplyMotion(Vector3.zero, false); // 본체는 제자리(중력만)
+            return;
+        }
+
+        // (A) 등반.
+        _flying = false;
         if (aim)
         {
-            if (!_wasAiming) EnterAim(); // 후방추적 -> 조준 전환 시 초기화
             HandleMouseLook();
             HandleMovementAim();
         }
         else
         {
-            HandleMovementFollow(); // 기존 동작
+            HandleMovementFollow();
         }
-
-        _wasAiming = aim;
-        IsAiming   = aim;
-        // 낙사 감지/부활/출발선 배치는 MatchManager(호스트 권위)가 담당(RPC -> TeleportTo).
+        TrackFall();
+        // 낙사/부활/배치는 MatchManager(호스트 권위)가 RPC 로 지시한다.
     }
 
     void LateUpdate()
@@ -132,28 +202,22 @@ public class PlayerController : NetworkBehaviour
         if (!IsSpawned || !IsOwner) return;
         if (_cam == null) { _cam = Camera.main; if (_cam == null) return; }
 
-        if (AimActive()) UpdateAimCamera();
-        else             UpdateFollowCamera();
+        if (Dead.Value)                    UpdateSpectatorCamera();
+        else if (_flying)                  UpdateFlyCamera();
+        else if (useAimView)               UpdateAimCamera();
+        else                               UpdateFollowCamera();
 
-        UpdateAimRay(); // 조준점/타깃 갱신(발사 확장용)
-    }
-
-    // ============================ 전환 ============================
-    void EnterAim()
-    {
-        // 코스는 START_Z(+Z)에서 GOAL_Z(-Z)로 진행 -> 골 방향(-Z)은 yaw 180.
-        _yaw   = faceCourseOnAimStart ? 180f : transform.eulerAngles.y;
-        _pitch = Mathf.Clamp(10f, aimMinPitch, aimMaxPitch);
+        UpdateAimRay();
     }
 
     // ============================ 입력: 마우스룩 ============================
     void HandleMouseLook()
     {
-        if (_cursorFreeOverride) return; // 커서 해제 중엔 시야 회전 정지(에디터 클릭 중)
+        if (_cursorFreeOverride) return;
         var mouse = Mouse.current;
         if (mouse == null) return;
 
-        Vector2 d = mouse.delta.ReadValue(); // 프레임 픽셀 delta (dt 곱하지 않음)
+        Vector2 d = mouse.delta.ReadValue();
         _yaw   += d.x * mouseSensitivity;
         _pitch += (invertY ? d.y : -d.y) * mouseSensitivity;
         _pitch  = Mathf.Clamp(_pitch, aimMinPitch, aimMaxPitch);
@@ -164,14 +228,11 @@ public class PlayerController : NetworkBehaviour
     {
         ReadMove(out float h, out float v, out bool jump);
 
-        // 카메라 yaw 기준 전/후/좌/우 스트레이프.
         Quaternion flat = Quaternion.Euler(0f, _yaw, 0f);
         Vector3 dir = flat * Vector3.forward * v + flat * Vector3.right * h;
         if (dir.sqrMagnitude > 1f) dir.Normalize();
 
-        // 몸은 카메라 yaw 를 향한다(조준 스트레이프). 즉시 정렬.
         transform.rotation = Quaternion.Euler(0f, _yaw, 0f);
-
         ApplyMotion(dir, jump);
     }
 
@@ -181,15 +242,11 @@ public class PlayerController : NetworkBehaviour
 
         Vector3 dir = new Vector3(h, 0f, v);
         if (dir.sqrMagnitude > 1f) dir.Normalize();
-
-        // 이동 방향으로 몸을 돌린다(카메라는 뒤를 따라옴).
         if (dir.sqrMagnitude > 0.0001f)
         {
             Quaternion target = Quaternion.LookRotation(dir, Vector3.up);
-            transform.rotation = Quaternion.Slerp(transform.rotation, target,
-                                                  turnSpeed * Time.deltaTime);
+            transform.rotation = Quaternion.Slerp(transform.rotation, target, turnSpeed * Time.deltaTime);
         }
-
         ApplyMotion(dir, jump);
     }
 
@@ -205,11 +262,11 @@ public class PlayerController : NetworkBehaviour
         jump = kb.spaceKey.wasPressedThisFrame;
     }
 
-    // 공통: 중력·점프·이동 적용.
     void ApplyMotion(Vector3 dir, bool jump)
     {
+        if (_cc == null || !_cc.enabled) return;
         if (_cc.isGrounded && _verticalVelocity < 0f)
-            _verticalVelocity = -2f; // 지면에 살짝 붙여 isGrounded 안정화
+            _verticalVelocity = -2f;
         if (jump && _cc.isGrounded)
             _verticalVelocity = Mathf.Sqrt(jumpHeight * -2f * gravity);
         _verticalVelocity += gravity * Time.deltaTime;
@@ -219,16 +276,63 @@ public class PlayerController : NetworkBehaviour
         _cc.Move(velocity * Time.deltaTime);
     }
 
+    // ============================ 낙하 추적(소유자) -> 서버 보고 ============================
+    void TrackFall()
+    {
+        if (_cc == null || !_cc.enabled) return;
+        float y = transform.position.y;
+        bool grounded = _cc.isGrounded;
+
+        if (!grounded)
+        {
+            if (y > _airApexY) _airApexY = y;
+            _wasAirborne = true;
+        }
+        else
+        {
+            if (_wasAirborne)
+            {
+                float fall = _airApexY - y;
+                if (fall >= fallReportMin)
+                    ReportFallServerRpc(fall);
+                _wasAirborne = false;
+            }
+            _airApexY = y;
+        }
+    }
+
+    // 소유자 -> 서버. 데미지 계산·체력 차감·사망 판정은 서버(MatchManager, 체력 비공개).
+    [Rpc(SendTo.Server)]
+    void ReportFallServerRpc(float fallHeight, RpcParams rpcParams = default)
+    {
+        var mm = MatchManager.Instance;
+        if (mm != null) mm.ApplyFallDamage(OwnerClientId, fallHeight);
+    }
+
+    // ============================ 보이지 않는 구조물 공개(충돌 상호작용) ============================
+    void OnControllerColliderHit(ControllerColliderHit hit)
+    {
+        if (!IsOwner || !IsSpawned) return;
+        if (Time.timeAsDouble < _nextRevealTime) return;
+
+        var ob = hit.collider.GetComponentInParent<Obstacle>();
+        if (ob == null || !ob.IsInvisibleKind || !ob.IsSpawned) return;
+
+        _nextRevealTime = Time.timeAsDouble + 0.5; // 스팸 방지
+        var mm = MatchManager.Instance;
+        if (mm != null) mm.RevealStructureServerRpc(ob.NetworkObject);
+    }
+
     // ============================ 커서 ============================
     void HandleCursor(bool aim)
     {
         var kb = Keyboard.current;
         if (kb != null && kb.escapeKey.wasPressedThisFrame)
-            _cursorFreeOverride = !_cursorFreeOverride; // Esc 토글
+            _cursorFreeOverride = !_cursorFreeOverride;
 
         var mouse = Mouse.current;
         if (aim && _cursorFreeOverride && mouse != null && mouse.leftButton.wasPressedThisFrame)
-            _cursorFreeOverride = false; // 조준 중 게임 클릭 -> 재잠금
+            _cursorFreeOverride = false;
 
         SetCursor(aim && !_cursorFreeOverride);
     }
@@ -239,12 +343,50 @@ public class PlayerController : NetworkBehaviour
         Cursor.visible   = !locked;
     }
 
-    // ============================ 카메라: 조준(오버숄더 궤도) ============================
-    void UpdateAimCamera()
+    // ============================ 준비 비행 ============================
+    void HandleFlyMove()
     {
+        var kb = Keyboard.current;
+        if (kb == null) return;
+
+        float h = 0f, v = 0f, up = 0f;
+        if (kb.aKey.isPressed) h -= 1f;
+        if (kb.dKey.isPressed) h += 1f;
+        if (kb.wKey.isPressed) v += 1f;
+        if (kb.sKey.isPressed) v -= 1f;
+        if (kb.spaceKey.isPressed) up += 1f;
+        if (kb.leftCtrlKey.isPressed) up -= 1f;
+
         Quaternion rot = Quaternion.Euler(_pitch, _yaw, 0f);
-        Vector3 pivot = transform.position + Vector3.up * aimHeight + (rot * Vector3.right) * aimShoulder;
-        Vector3 dir = rot * Vector3.back; // 피벗 뒤쪽
+        Vector3 dir = rot * Vector3.forward * v + rot * Vector3.right * h + Vector3.up * up;
+        if (dir.sqrMagnitude > 1f) dir.Normalize();
+        _flyPos += dir * flySpeed * Time.deltaTime;
+
+        // 볼륨 안으로 클램프(경계 밖 시점 방지).
+        var gen = ClimbMapGenerator.Instance;
+        if (gen != null)
+        {
+            _flyPos.x = Mathf.Clamp(_flyPos.x, -gen.MapWidth * 0.5f + 0.3f, gen.MapWidth * 0.5f - 0.3f);
+            _flyPos.z = Mathf.Clamp(_flyPos.z, -gen.MapDepth * 0.5f + 0.3f, gen.MapDepth * 0.5f - 0.3f);
+            _flyPos.y = Mathf.Clamp(_flyPos.y, 0.5f, gen.MapHeight + 2f);
+        }
+    }
+
+    void UpdateFlyCamera()
+    {
+        _cam.transform.position = _flyPos;
+        _cam.transform.rotation = Quaternion.Euler(_pitch, _yaw, 0f);
+    }
+
+    // ============================ 관전(탈락) ============================
+    void UpdateSpectatorCamera()
+    {
+        Transform target = PickSpectateTarget();
+        if (target == null) target = transform; // 볼 사람이 없으면 자기 자리
+
+        Quaternion rot = Quaternion.Euler(_pitch, _yaw, 0f);
+        Vector3 pivot = target.position + Vector3.up * aimHeight;
+        Vector3 dir = rot * Vector3.back;
 
         float dist = aimDistance;
         if (camCollisionMask.value != 0 &&
@@ -254,18 +396,54 @@ public class PlayerController : NetworkBehaviour
             dist = Mathf.Max(camMinDistance, hit.distance - camCollisionSkin);
         }
 
-        Vector3 camPos = pivot + dir * dist;
-
-        _cam.transform.position = camPos;
-        _cam.transform.rotation = rot; // 카메라 전방 = 조준 방향(중앙 조준점이 이 방향)
+        _cam.transform.position = pivot + dir * dist;
+        _cam.transform.rotation = rot;
     }
 
-    // ============================ 카메라: 후방추적(기존) ============================
+    Transform PickSpectateTarget()
+    {
+        var nm = NetworkManager.Singleton;
+        if (nm == null || nm.SpawnManager == null) return null;
+
+        // 생존 중인 다른 플레이어 목록(관전 후보).
+        var candidates = new System.Collections.Generic.List<Transform>();
+        foreach (NetworkObject no in nm.SpawnManager.SpawnedObjectsList)
+        {
+            if (no == null || !no.IsPlayerObject) continue;
+            if (no.OwnerClientId == OwnerClientId) continue;
+            var pc = no.GetComponent<PlayerController>();
+            if (pc != null && pc.Dead.Value) continue;
+            candidates.Add(no.transform);
+        }
+        if (candidates.Count == 0) return null;
+        return candidates[Mathf.Abs(_spectateIndex) % candidates.Count];
+    }
+
+    // ============================ 카메라: 조준(오버숄더) ============================
+    void UpdateAimCamera()
+    {
+        Quaternion rot = Quaternion.Euler(_pitch, _yaw, 0f);
+        Vector3 pivot = transform.position + Vector3.up * aimHeight + (rot * Vector3.right) * aimShoulder;
+        Vector3 dir = rot * Vector3.back;
+
+        float dist = aimDistance;
+        if (camCollisionMask.value != 0 &&
+            Physics.SphereCast(pivot, camSphereRadius, dir, out RaycastHit hit,
+                aimDistance, camCollisionMask, QueryTriggerInteraction.Ignore))
+        {
+            dist = Mathf.Max(camMinDistance, hit.distance - camCollisionSkin);
+        }
+
+        _cam.transform.position = pivot + dir * dist;
+        _cam.transform.rotation = rot;
+    }
+
+    // ============================ 카메라: 후방추적(보존) ============================
     void UpdateFollowCamera()
     {
         Vector3 pivot = transform.position + Vector3.up * camHeight;
         Quaternion rot = Quaternion.Euler(camPitch, transform.eulerAngles.y, 0f);
-        Vector3 dir = (rot * Vector3.back).normalized; // 플레이어 뒤쪽(+ 살짝 위)
+        Vector3 dir = (rot * Vector3.back).normalized;
 
         float dist = camDistance;
         if (camCollisionMask.value != 0 &&
@@ -276,14 +454,11 @@ public class PlayerController : NetworkBehaviour
         }
 
         Vector3 camPos = pivot + dir * dist;
-
         _cam.transform.position = camPos;
         _cam.transform.rotation = Quaternion.LookRotation(pivot - camPos, Vector3.up);
     }
-    // 카메라 지면 침투는 Ground 레이어 SphereCast 오클루전이 담당한다.
-    // (플로팅 플랫폼 맵에서는 옛 지형 높이 클램프가 오히려 오동작하므로 폐기.)
 
-    // 카메라 중앙에서 나가는 조준 레이 + 히트 지점(자기 콜라이더는 무시). 발사 확장용.
+    // 카메라 중앙 조준 레이 + 히트 지점(자기 자신 제외). 구조물 설치(PrepClientUI)가 사용.
     void UpdateAimRay()
     {
         Ray r = new Ray(_cam.transform.position, _cam.transform.forward);
@@ -297,41 +472,38 @@ public class PlayerController : NetworkBehaviour
             var col = _rayBuf[i].collider;
             if (col == null) continue;
             var ct = col.transform;
-            if (ct == transform || ct.IsChildOf(transform)) continue; // 자기 자신 제외
+            if (ct == transform || ct.IsChildOf(transform)) continue;
             if (_rayBuf[i].distance < best) { best = _rayBuf[i].distance; found = true; AimPoint = _rayBuf[i].point; }
         }
         if (!found) AimPoint = r.origin + r.direction * aimRayDistance;
     }
 
-    // ============================ 소유자 전용 순간이동(MatchManager 가 RPC 로 호출) ============================
-    /// <summary>
-    /// CharacterController 를 잠깐 끄고 NetworkTransform.Teleport 로 보간 없이 스냅한다.
-    /// </summary>
+    // ============================ 소유자 전용 순간이동(MatchManager RPC 가 호출) ============================
     public void TeleportTo(Vector3 spawn)
     {
-        if (!IsOwner) return;                              // 소유자(권위)만 유효
+        if (!IsOwner) return;
         if (_cc == null)  _cc  = GetComponent<CharacterController>();
         if (_net == null) _net = GetComponent<NetworkTransform>();
 
+        bool wasEnabled = _cc != null && _cc.enabled;
         if (_net != null)
         {
-            // CharacterController 는 내부 캐시 위치가 있어, 켜진 채 이동하면 다음 스텝에 원위치로
-            // 되돌린다 -> 잠깐 끈다. NetworkTransform 은 끄지 말 것(issue #3183: 한 프레임 튐).
-            _cc.enabled = false;
+            if (_cc != null) _cc.enabled = false;
             _net.Teleport(spawn, transform.rotation, transform.localScale);
-            _cc.enabled = true;
-            Physics.SyncTransforms(); // 재활성 CC 가 새 위치를 인식(isGrounded/다음 Move)
+            if (_cc != null) _cc.enabled = wasEnabled || !Dead.Value;
+            Physics.SyncTransforms();
         }
         else
         {
-            _cc.enabled = false;
+            if (_cc != null) _cc.enabled = false;
             transform.position = spawn;
-            _cc.enabled = true;
+            if (_cc != null) _cc.enabled = wasEnabled || !Dead.Value;
             Physics.SyncTransforms();
         }
 
-        _verticalVelocity = 0f; // 낙하 누적 속도 리셋(부활 직후 재낙사 방지)
+        _verticalVelocity = 0f;
+        _airApexY = spawn.y;   // 텔레포트를 낙하로 오인하지 않게 리셋
+        _wasAirborne = false;
     }
-
 }
 }
