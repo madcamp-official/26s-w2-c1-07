@@ -12,7 +12,7 @@ GameObject:
   - component: {fileID: 4484164005210750251}
   - component: {fileID: 523422566001718240}
   m_Layer: 0
-  m_Name: Obstacle_Ghost
+  m_Name: Structure_Invisible
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0

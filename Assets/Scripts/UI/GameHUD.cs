@@ -319,6 +319,7 @@ namespace RouletteParty.UI
             {
                 case MatchPhase.Play:     RenderPlay(m, localY, localDead); break;
                 case MatchPhase.Highlight:RenderHighlight(m);     break;
+                case MatchPhase.Intermission: RenderHighlight(m); break; // 다음 라운드 대기 중에도 직전 하이라이트 유지 표시
                 case MatchPhase.Result:   RenderResult(m);        break;
                 default: /* Lobby/Prep: 중앙 콘텐츠 없음 */ break;
             }
@@ -685,6 +686,7 @@ namespace RouletteParty.UI
                 case MatchPhase.Prep:      return "준비";
                 case MatchPhase.Play:      return "플레이";
                 case MatchPhase.Highlight: return "하이라이트";
+                case MatchPhase.Intermission: return "대기 중";
                 case MatchPhase.Result:    return "결과";
                 default:                   return "";
             }

@@ -11,8 +11,11 @@ namespace RouletteParty.Match
     //  - 라운드 순위는 기존 NetworkList<RoundResult> 를 그대로 재사용(직렬화 안정).
     // =====================================================================================
 
-    /// <summary>매치 FSM: LOBBY -> [PREP -> PLAY -> HIGHLIGHT] x3 -> RESULT -> loop. (룰렛 없음)</summary>
-    public enum MatchPhase : byte { Lobby, Prep, Play, Highlight, Result }
+    /// <summary>
+    /// 매치 FSM: LOBBY -> [PREP -> PLAY -> HIGHLIGHT -> INTERMISSION] x3(마지막회차는 INTERMISSION 대신 RESULT) -> loop.
+    /// INTERMISSION = 하이라이트 연출이 끝난 뒤 다음 라운드 PREP 로 곧장 넘어가면 어색하므로 두는 라운드 간 대기 구간.
+    /// </summary>
+    public enum MatchPhase : byte { Lobby, Prep, Play, Highlight, Intermission, Result }
 
     /// <summary>엔진 전역 상수(라운드 수만 상수, 나머지 튜닝값은 전부 SerializeField).</summary>
     public static class Climb

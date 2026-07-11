@@ -1,34 +1,42 @@
+using System.Collections.Generic;
 using Unity.Netcode;
 using UnityEngine;
+using UnityEngine.Serialization;
 
 namespace RouletteParty.Match
 {
     /// <summary>
-    /// 구조물 종류. Wall/Cylinder = 보이는 구조물, Ghost = 보이지 않는 구조물.
-    /// byte 백킹 -> RPC/NetworkVariable 직렬화 그대로 사용.
+    /// 구조물 종류. Wall/Cylinder = 보이는 구조물, Invisible = 보이지 않는 구조물.
+    /// byte 백킹 -> RPC/NetworkVariable 직렬화 그대로 사용(값 변경 금지: 와이어 포맷).
     /// </summary>
-    public enum ObstacleType : byte { Wall = 0, Cylinder = 1, Ghost = 2 }
+    public enum StructureType : byte { Wall = 0, Cylinder = 1, Invisible = 2 }
 
     /// <summary>
     /// 구조물(플레이어가 설치하는 Object). 클라이밍 전환 명세 6절의 가시성 규칙 구현.
     ///
     ///  - 콜라이더는 모든 클라에서 항상 켜져 있다(물리 공정성, 기존 규약 유지). 렌더러만 분기.
     ///  - 보이는 구조물(Wall/Cylinder): 생성 후 어떤 페이즈에서도 전원에게 보임(분기 없음).
-    ///  - 보이지 않는 구조물(Ghost):
+    ///  - 보이지 않는 구조물(Invisible):
     ///      PREP + 설치자 본인      -> 보임(반투명 머티리얼이 있으면 반투명)
     ///      그 외 페이즈/타인       -> 안 보임(설치자 본인 포함)
     ///      플레이어 충돌(상호작용) -> 서버가 RevealUntil 기록, 그 시각까지 전원에게 보임
     ///  - Type/OwnerId 는 서버가 Spawn() 이전에 세팅(ServerInit)해 초기 동기화에 싣는다.
     /// </summary>
     [RequireComponent(typeof(NetworkObject))]
-    public class Obstacle : NetworkBehaviour
+    public class Structure : NetworkBehaviour
     {
-        [Header("GHOST(보이지 않는 구조물) 렌더 제어 (Wall/Cylinder 프리팹은 비워도 됨)")]
-        [Tooltip("가시성 분기 대상 렌더러들. Ghost 프리팹에서만 필요.")]
+        // 스폰 중인 전체 구조물 레지스트리. 매 프레임 FindObjectsByType 스캔을 피하기 위한
+        // 표준 패턴(스폰/디스폰 시점에만 갱신). 잔여 개수 계산(PrepClientUI) 등이 순회한다.
+        private static readonly List<Structure> s_active = new List<Structure>();
+        public static IReadOnlyList<Structure> Active => s_active;
+
+        [Header("INVISIBLE(보이지 않는 구조물) 렌더 제어 (Wall/Cylinder 프리팹은 비워도 됨)")]
+        [Tooltip("가시성 분기 대상 렌더러들. 보이지 않는 구조물 프리팹에서만 필요.")]
         [SerializeField] private Renderer[] _renderers;
 
         [Tooltip("선택: PREP 중 설치자에게 보여줄 반투명 머티리얼. 비우면 원본 머티리얼로 보인다.")]
-        [SerializeField] private Material _ghostOwnerMaterial;
+        [FormerlySerializedAs("_ghostOwnerMaterial")]
+        [SerializeField] private Material _ownerPreviewMaterial;
 
         [Tooltip("플레이어 상호작용(충돌) 시 전원에게 공개되는 시간(초). 연속 충돌은 연장된다.")]
         [SerializeField] private float _revealDuration = 2f;
@@ -43,15 +51,15 @@ namespace RouletteParty.Match
         public NetworkVariable<double> RevealUntil = new NetworkVariable<double>(
             0d, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
 
-        public ObstacleType ObType => (ObstacleType)Type.Value;
-        public bool IsInvisibleKind => ObType == ObstacleType.Ghost;
+        public StructureType Kind => (StructureType)Type.Value;
+        public bool IsInvisibleKind => Kind == StructureType.Invisible;
 
         // 원본 머티리얼 캐시(반투명 <-> 원본 전환용)
         Material[] _originalMats;
         int _lastState = -1; // 0=숨김, 1=반투명(설치자 PREP), 2=원본(공개/보이는 구조물)
 
         /// <summary>서버 전용. Instantiate 직후, Spawn() 이전에 호출해 종류/설치자를 확정한다.</summary>
-        public void ServerInit(ObstacleType type, ulong owner)
+        public void ServerInit(StructureType type, ulong owner)
         {
             Type.Value    = (byte)type;
             OwnerId.Value = owner;
@@ -59,6 +67,8 @@ namespace RouletteParty.Match
 
         public override void OnNetworkSpawn()
         {
+            s_active.Add(this);
+
             if (_renderers != null && _renderers.Length > 0)
             {
                 _originalMats = new Material[_renderers.Length];
@@ -66,6 +76,11 @@ namespace RouletteParty.Match
                     if (_renderers[i] != null) _originalMats[i] = _renderers[i].sharedMaterial;
             }
             _lastState = -1; // 첫 프레임에 강제 적용
+        }
+
+        public override void OnNetworkDespawn()
+        {
+            s_active.Remove(this);
         }
 
         // 가시성은 페이즈·RevealUntil(시간)에 의존하므로 이벤트가 아니라 매 프레임 평가한다.
@@ -111,7 +126,7 @@ namespace RouletteParty.Match
                         break;
                     case 1:
                         r.enabled = true;
-                        if (_ghostOwnerMaterial != null) r.sharedMaterial = _ghostOwnerMaterial;
+                        if (_ownerPreviewMaterial != null) r.sharedMaterial = _ownerPreviewMaterial;
                         else if (_originalMats != null && _originalMats[i] != null) r.sharedMaterial = _originalMats[i];
                         break;
                     case 2:

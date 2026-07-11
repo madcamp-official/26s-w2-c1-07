@@ -130,7 +130,7 @@ GameObject:
   - component: {fileID: 69890712}
   - component: {fileID: 69890711}
   m_Layer: 0
-  m_Name: ClimbMap
+  m_Name: ClimbMapGenerator
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -151,6 +151,8 @@ MonoBehaviour:
   mapWidth: 6
   mapDepth: 6
   mapHeight: 50
+  floorWidth: 24
+  floorDepth: 24
   sliceCount: 75
   structuresPerSlice: 2
   minStructureSpacing: 0.4
@@ -689,6 +691,7 @@ MonoBehaviour:
   _prepDuration: 60
   _playDuration: 180
   _highlightDuration: 8
+  _intermissionDuration: 5
   _resultDuration: 14
   _finishGrace: 15
   spawnSpacingX: 2

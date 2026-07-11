@@ -4,7 +4,8 @@ using Unity.Netcode;
 using Unity.Netcode.Components;
 using UnityEngine;
 using UnityEngine.InputSystem; // 새 Input System (Keyboard.current / Mouse.current)
-using RouletteParty.Match;      // MatchManager, MatchPhase, Obstacle
+using RouletteParty.Match;      // MatchManager, MatchPhase, Structure
+using RouletteParty.Map;        // ClimbMapGenerator (PREP 비행 범위 클램프)
 
 /// <summary>
 /// 소유자 권위(ClientNetworkTransform) 3인칭 플레이어. 클라이밍 전환 명세 4절 구현.
@@ -14,7 +15,8 @@ using RouletteParty.Match;      // MatchManager, MatchPhase, Obstacle
 ///      낙하 추적: 공중 최고점 - 착지점 >= fallReportMin 이면 서버에 보고(ReportFallServerRpc).
 ///      체력·사망 판정은 서버(MatchManager)가 한다(체력은 비공개 정보라 클라는 모른다).
 ///  (B) 준비(PREP): 본체는 바닥에 잠금, 자유 비행 고스트 카메라(WASD+마우스룩+Space/Ctrl)로
-///      맵 볼륨을 날며 구조물을 설치한다(설치 자체는 PrepClientUI).
+///      지면 범위(플레이어 이동 가능 범위와 동일) 전체를 날며 구조물을 설치한다(설치 자체는 PrepClientUI,
+///      설치 가능 위치는 구조물 생성 범위로 더 좁게 제한).
 ///  (C) 탈락(Dead): 입력 잠금, 본체 렌더·콜라이더 off, 카메라는 생존자 추적 관전(좌클릭 순환).
 ///
 /// Dead 는 서버가 쓰는 NetworkVariable 로 전 클라에 전파된다(렌더 분기·관전 필터의 근거).
@@ -315,7 +317,7 @@ public class PlayerController : NetworkBehaviour
         if (!IsOwner || !IsSpawned) return;
         if (Time.timeAsDouble < _nextRevealTime) return;
 
-        var ob = hit.collider.GetComponentInParent<Obstacle>();
+        var ob = hit.collider.GetComponentInParent<Structure>();
         if (ob == null || !ob.IsInvisibleKind || !ob.IsSpawned) return;
 
         _nextRevealTime = Time.timeAsDouble + 0.5; // 스팸 방지
@@ -362,12 +364,13 @@ public class PlayerController : NetworkBehaviour
         if (dir.sqrMagnitude > 1f) dir.Normalize();
         _flyPos += dir * flySpeed * Time.deltaTime;
 
-        // 볼륨 안으로 클램프(경계 밖 시점 방지).
+        // PREP 이동 범위로 클램프(경계 밖 시점 방지). 지면 크기(FloorWidth/FloorDepth) 기준 —
+        // 구조물 생성 범위(MapWidth/MapDepth)보다 넓어, 비행 자체는 지면 전체 위를 자유로이 오간다.
         var gen = ClimbMapGenerator.Instance;
         if (gen != null)
         {
-            _flyPos.x = Mathf.Clamp(_flyPos.x, -gen.MapWidth * 0.5f + 0.3f, gen.MapWidth * 0.5f - 0.3f);
-            _flyPos.z = Mathf.Clamp(_flyPos.z, -gen.MapDepth * 0.5f + 0.3f, gen.MapDepth * 0.5f - 0.3f);
+            _flyPos.x = Mathf.Clamp(_flyPos.x, -gen.FloorWidth * 0.5f + 0.3f, gen.FloorWidth * 0.5f - 0.3f);
+            _flyPos.z = Mathf.Clamp(_flyPos.z, -gen.FloorDepth * 0.5f + 0.3f, gen.FloorDepth * 0.5f - 0.3f);
             _flyPos.y = Mathf.Clamp(_flyPos.y, 0.5f, gen.MapHeight + 2f);
         }
     }

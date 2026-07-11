@@ -1,6 +1,7 @@
 using Unity.Netcode;
 using UnityEngine;
 using UnityEngine.InputSystem; // 새 Input System
+using RouletteParty.Map; // ClimbMapGenerator (설치 볼륨 검증)
 
 namespace RouletteParty.Match
 {
@@ -24,7 +25,7 @@ namespace RouletteParty.Match
         [Tooltip("프리뷰 색(설치 불가).")]
         [SerializeField] private Color _badColor = new Color(1f, 0.3f, 0.3f, 0.45f);
 
-        private ObstacleType _selected = ObstacleType.Wall;
+        private StructureType _selected = StructureType.Wall;
         private int _yawStep;
 
         // PREP 시작 시 내 구조물 수 스냅샷(잔여 계산용)
@@ -63,9 +64,9 @@ namespace RouletteParty.Match
             var kb = Keyboard.current;
             if (kb != null)
             {
-                if (kb.digit1Key.wasPressedThisFrame) _selected = ObstacleType.Wall;
-                else if (kb.digit2Key.wasPressedThisFrame) _selected = ObstacleType.Cylinder;
-                else if (kb.digit3Key.wasPressedThisFrame) _selected = ObstacleType.Ghost;
+                if (kb.digit1Key.wasPressedThisFrame) _selected = StructureType.Wall;
+                else if (kb.digit2Key.wasPressedThisFrame) _selected = StructureType.Cylinder;
+                else if (kb.digit3Key.wasPressedThisFrame) _selected = StructureType.Invisible;
                 if (kb.rKey.wasPressedThisFrame) _yawStep = (_yawStep + 1) & 3;
             }
 
@@ -74,7 +75,7 @@ namespace RouletteParty.Match
             if (pc == null) { HidePreview(); return; }
             Vector3 point = pc.AimPoint;
 
-            bool invisible = _selected == ObstacleType.Ghost;
+            bool invisible = _selected == StructureType.Invisible;
             int remaining = invisible ? RemainingInvisible() : RemainingVisible();
             var gen = ClimbMapGenerator.Instance;
             bool ok = remaining > 0 && gen != null && gen.InsideVolume(point, 0.1f);
@@ -110,6 +111,7 @@ namespace RouletteParty.Match
         }
 
         // 스폰된 내 구조물 수(서버 확정 결과 반영: 거부된 요청은 안 셈).
+        // Structure.Active 레지스트리 순회(스폰/디스폰 시 갱신) — 매 프레임 씬 전체 스캔 없음.
         private void CountMine(out int visible, out int invisible)
         {
             visible = 0; invisible = 0;
@@ -117,10 +119,11 @@ namespace RouletteParty.Match
             if (nm == null) return;
             ulong me = nm.LocalClientId;
 
-            var all = Object.FindObjectsByType<Obstacle>();
-            foreach (var ob in all)
+            var all = Structure.Active;
+            for (int i = 0; i < all.Count; i++)
             {
-                if (!ob.IsSpawned || ob.OwnerId.Value != me) continue;
+                var ob = all[i];
+                if (ob == null || !ob.IsSpawned || ob.OwnerId.Value != me) continue;
                 if (ob.IsInvisibleKind) invisible++;
                 else visible++;
             }
@@ -157,7 +160,7 @@ namespace RouletteParty.Match
             EnsurePreview();
             _previewMat.color = ok ? _okColor : _badColor;
 
-            bool cyl = _selected == ObstacleType.Cylinder;
+            bool cyl = _selected == StructureType.Cylinder;
             _previewBox.SetActive(!cyl);
             _previewCyl.SetActive(cyl);
 
@@ -202,14 +205,14 @@ namespace RouletteParty.Match
             GUILayout.EndArea();
         }
 
-        private static string TypeKorean(ObstacleType t)
+        private static string TypeKorean(StructureType t)
         {
             switch (t)
             {
-                case ObstacleType.Wall:     return "벽 (보이는)";
-                case ObstacleType.Cylinder: return "원기둥 (보이는)";
-                case ObstacleType.Ghost:    return "투명 (안 보이는)";
-                default:                    return "-";
+                case StructureType.Wall:      return "벽 (보이는)";
+                case StructureType.Cylinder:  return "원기둥 (보이는)";
+                case StructureType.Invisible: return "투명 (안 보이는)";
+                default:                      return "-";
             }
         }
     }
