@@ -557,6 +557,13 @@ public class PlayerController : NetworkBehaviour
             if (col == null) continue;
             var ct = col.transform;
             if (ct == transform || ct.IsChildOf(transform)) continue;
+
+            // 나에게 숨겨진 구조물(타인의 투명 구조물)은 통과: 콜라이더는 공정성 규약상 항상
+            // 켜져 있지만, 여기서 맞으면 블루프린트가 함정 표면에 얹히거나 윗면 스냅이 작동해
+            // 설치 시도 없이도 함정 위치가 드러난다. 렌더러와 동일한 가시성 규칙을 공유.
+            var st = col.GetComponentInParent<Structure>();
+            if (st != null && st.IsHiddenFromLocal) continue;
+
             if (_rayBuf[i].distance < best)
             {
                 best = _rayBuf[i].distance; found = true;

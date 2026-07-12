@@ -69,6 +69,11 @@ namespace RouletteParty.Match
         public StructureType Kind => (StructureType)Type.Value;
         public bool IsInvisibleKind => Kind == StructureType.Invisible;
 
+        /// <summary>이 구조물이 로컬 클라이언트에게 숨겨져 있는가(렌더러 가시성과 같은 규칙 = ComputeState).
+        /// 조준 레이(PlayerController.UpdateAimRay)가 이 값으로 함정 콜라이더를 통과시킨다 —
+        /// 블루프린트가 함정 표면에 얹히거나 윗면 스냅이 작동해 위치가 드러나는 것을 막는다.</summary>
+        public bool IsHiddenFromLocal => IsSpawned && IsInvisibleKind && ComputeState() == 0;
+
         // 원본 머티리얼 캐시(반투명 <-> 원본 전환용)
         Material[] _originalMats;
         // 콜라이더 캐시(WorldBounds 용. 콜라이더는 규약상 모든 클라에서 항상 켜져 있다)

@@ -561,11 +561,24 @@ namespace RouletteParty.UI
                     continue;
                 }
 
+                var np = _nameplates[i];
+
+                // 탈락자는 이름표 숨김: 본체 렌더러는 꺼지지만 오브젝트는 탈락 위치에 남으므로
+                // Dead 를 확인하지 않으면 이름표만 허공에 떠 있게 된다.
+                if (np.source != no)
+                {
+                    np.source = no;
+                    np.pc = no.GetComponent<RouletteParty.Net.PlayerController>();
+                }
+                if (np.pc != null && np.pc.Dead.Value)
+                {
+                    np.go.SetActive(false);
+                    continue;
+                }
+
                 ulong id = no.OwnerClientId;
                 Vector3 world = no.transform.position + Vector3.up * 2.2f;
                 Vector3 sp = cam.WorldToScreenPoint(world);
-
-                var np = _nameplates[i];
                 if (sp.z < 0f) // 카메라 뒤 → 숨김
                 {
                     np.go.SetActive(false);
@@ -731,6 +744,10 @@ namespace RouletteParty.UI
             public GameObject go;
             public RectTransform rt;
             public Text text;
+            // Dead 판정용 컴포넌트 캐시. _players 순서가 바뀔 수 있으므로 어느 플레이어의
+            // 캐시인지(source)를 함께 저장하고, 다르면 갱신한다(매 프레임 GetComponent 회피).
+            public NetworkObject source;
+            public RouletteParty.Net.PlayerController pc;
         }
     }
 }
