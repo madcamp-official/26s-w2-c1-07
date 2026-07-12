@@ -159,7 +159,9 @@ namespace RouletteParty.UI
             scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
             scaler.referenceResolution = new Vector2(1920, 1080);
             scaler.screenMatchMode = CanvasScaler.ScreenMatchMode.MatchWidthOrHeight;
-            scaler.matchWidthOrHeight = 0.5f;
+            // 가로형 PC 게임 표준: 높이(1) 기준 매칭. 21:9 등 와이드 화면에서 UI 가 커지지 않고
+            // 가로 여백만 늘어난다(요소들은 앵커로 모서리/중앙에 붙어 있어 비율 차이를 흡수).
+            scaler.matchWidthOrHeight = 1f;
             // 표시 전용: GraphicRaycaster/EventSystem 불필요(투표·장애물은 별도 PrepClientUI가 담당).
 
             _canvasRT = _canvas.GetComponent<RectTransform>();

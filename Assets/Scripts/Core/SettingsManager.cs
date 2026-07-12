@@ -1,5 +1,6 @@
 using UnityEngine;
 using UnityEngine.InputSystem; // 새 Input System
+using RouletteParty.UI;        // ImguiScale (OnGUI 해상도 스케일링)
 
 namespace RouletteParty.Core
 {
@@ -132,8 +133,9 @@ namespace RouletteParty.Core
             if (_title == null)
                 _title = new GUIStyle(GUI.skin.label) { fontStyle = FontStyle.Bold, fontSize = 16 };
 
+            ImguiScale.Apply(); // 이하 좌표는 1080p 기준 가상 픽셀
             const float W = 360f, H = 330f;
-            _panelRect = new Rect((Screen.width - W) * 0.5f, (Screen.height - H) * 0.5f, W, H);
+            _panelRect = new Rect((ImguiScale.VirtualWidth - W) * 0.5f, (ImguiScale.VirtualHeight - H) * 0.5f, W, H);
 
             GUILayout.BeginArea(_panelRect, GUI.skin.window);
             GUILayout.Label("설정  (F1 닫기)", _title);

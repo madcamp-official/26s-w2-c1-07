@@ -3,6 +3,7 @@ using System.Net.Sockets;
 using Unity.Netcode;
 using Unity.Netcode.Transports.UTP;
 using UnityEngine;
+using RouletteParty.UI; // ImguiScale (OnGUI 해상도 스케일링)
 
 namespace RouletteParty.Net
 {
@@ -75,6 +76,7 @@ namespace RouletteParty.Net
 
         private void OnGUI()
         {
+            ImguiScale.Apply(); // 이하 좌표는 1080p 기준 가상 픽셀
             GUILayout.BeginArea(new Rect(10, 10, 260, 270), GUI.skin.box);
 
             var nm = NetworkManager.Singleton;

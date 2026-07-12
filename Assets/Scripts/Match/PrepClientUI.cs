@@ -2,6 +2,7 @@ using Unity.Netcode;
 using UnityEngine;
 using UnityEngine.InputSystem; // 새 Input System
 using RouletteParty.Map; // ClimbMapGenerator (설치 볼륨 검증)
+using RouletteParty.UI;  // ImguiScale (OnGUI 해상도 스케일링)
 
 namespace RouletteParty.Match
 {
@@ -190,9 +191,10 @@ namespace RouletteParty.Match
             if (!Active) return;
             if (_rich == null) _rich = new GUIStyle(GUI.skin.label) { richText = true };
 
+            ImguiScale.Apply(); // 이하 좌표는 1080p 기준 가상 픽셀
             GUILayout.BeginArea(_panelRect, GUI.skin.box);
             GUILayout.Label("<b>준비</b> — 구조물 설치 (자유 비행)", _rich);
-            GUILayout.Label("비행: WASD + 마우스, Space 상승 / Ctrl 하강", _rich);
+            GUILayout.Label("비행: WASD 수평 + 마우스 시선, Space 상승 / Shift 하강", _rich);
 
             GUILayout.Space(4);
             GUILayout.Label($"종류  <b>[1]</b> 벽  <b>[2]</b> 원기둥  <b>[3]</b> 투명(안 보임)", _rich);

@@ -16,7 +16,8 @@ using RouletteParty.Core;       // SettingsManager (감도/Y반전/패널 열림
 ///  (A) 등반(PLAY 등): 배그식 3인칭 마우스룩. 점프 dy 최대 = jumpHeight(1).
 ///      낙하 추적: 공중 최고점 - 착지점 >= fallReportMin 이면 서버에 보고(ReportFallServerRpc).
 ///      체력·사망 판정은 서버(MatchManager)가 한다(체력은 비공개 정보라 클라는 모른다).
-///  (B) 준비(PREP): 본체는 바닥에 잠금, 자유 비행 고스트 카메라(WASD+마우스룩+Space/Ctrl)로
+///  (B) 준비(PREP): 본체는 바닥에 잠금, 자유 비행 고스트 카메라로 이동. WASD 는 x/z 수평
+///      전용(시선 상하 무관), Space 상승 / Shift 하강. 마우스룩으로 시선만 회전.
 ///      지면 범위(플레이어 이동 가능 범위와 동일) 전체를 날며 구조물을 설치한다(설치 자체는 PrepClientUI,
 ///      설치 가능 위치는 구조물 생성 범위로 더 좁게 제한).
 ///  (C) 탈락(Dead): 입력 잠금, 본체 렌더·콜라이더 off, 카메라는 생존자 추적 관전(좌클릭 순환).
@@ -65,8 +66,10 @@ public class PlayerController : NetworkBehaviour
     public float aimRayDistance = 500f;
 
     [Header("준비 페이즈 비행 카메라")]
-    [Tooltip("PREP 자유 비행 속도.")]
+    [Tooltip("PREP 자유 비행 수평(x/z) 이동 속도. WASD 는 시선 상하와 무관하게 수평으로만 움직인다.")]
     public float flySpeed = 8f;
+    [Tooltip("PREP 자유 비행 수직 이동 속도(Space = 상승, Shift = 하강).")]
+    public float flyVerticalSpeed = 6f;
 
     // ---- 상태 접근점 ----
     public bool IsAiming { get; private set; }
@@ -374,12 +377,15 @@ public class PlayerController : NetworkBehaviour
         if (kb.wKey.isPressed) v += 1f;
         if (kb.sKey.isPressed) v -= 1f;
         if (kb.spaceKey.isPressed) up += 1f;
-        if (kb.leftCtrlKey.isPressed) up -= 1f;
+        if (kb.leftShiftKey.isPressed || kb.rightShiftKey.isPressed) up -= 1f;
 
-        Quaternion rot = Quaternion.Euler(_pitch, _yaw, 0f);
-        Vector3 dir = rot * Vector3.forward * v + rot * Vector3.right * h + Vector3.up * up;
-        if (dir.sqrMagnitude > 1f) dir.Normalize();
-        _flyPos += dir * flySpeed * Time.deltaTime;
+        // 수평(x/z): 시선 pitch 는 무시하고 yaw 만 사용 -> 위를 보고 W 를 눌러도 수평 전진.
+        Quaternion yawRot = Quaternion.Euler(0f, _yaw, 0f);
+        Vector3 planar = yawRot * Vector3.forward * v + yawRot * Vector3.right * h;
+        if (planar.sqrMagnitude > 1f) planar.Normalize();
+
+        _flyPos += planar * flySpeed * Time.deltaTime;
+        _flyPos += Vector3.up * (up * flyVerticalSpeed * Time.deltaTime); // 수직은 Space/Shift 전용
 
         // PREP 이동 범위로 클램프(경계 밖 시점 방지). 지면 크기(FloorWidth/FloorDepth) 기준 —
         // 구조물 생성 범위(MapWidth/MapDepth)보다 넓어, 비행 자체는 지면 전체 위를 자유로이 오간다.

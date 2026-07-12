@@ -4,6 +4,7 @@ using UnityEngine;
 using UnityEngine.Serialization;
 using RouletteParty.Map; // ClimbMapGenerator
 using RouletteParty.Net; // PlayerController (소유자 텔레포트 위임)
+using RouletteParty.UI;  // ImguiScale (디버그 OnGUI 해상도 스케일링)
 
 namespace RouletteParty.Match
 {
@@ -559,6 +560,7 @@ namespace RouletteParty.Match
             float rem = Mathf.Max(0f, (float)(_phaseEndTime.Value - now));
             string role = IsServer ? (IsHost ? "Host" : "Server") : "Client";
 
+            ImguiScale.Apply(); // 이하 좌표는 1080p 기준 가상 픽셀
             GUILayout.BeginArea(new Rect(280, 10, 380, 360), GUI.skin.box);
             GUILayout.Label($"[MatchManager] role={role} (Climb)");
             GUILayout.Label($"Phase   : {_phase.Value}");
