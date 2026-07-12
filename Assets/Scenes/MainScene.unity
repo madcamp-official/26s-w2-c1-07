@@ -153,7 +153,7 @@ MonoBehaviour:
   mapHeight: 50
   floorWidth: 24
   floorDepth: 24
-  sliceCount: 75
+  sliceCount: 50
   structuresPerSlice: 2
   minStructureSpacing: 0.4
   maxPlacementAttempts: 30
@@ -704,7 +704,7 @@ MonoBehaviour:
   _minSpacing: 0.8
   _wallPrefab: {fileID: 3080545699982424362, guid: 4bd61b8f14406d84fadc0b2b5a9c2cc8, type: 3}
   _cylinderPrefab: {fileID: 5695219427646287698, guid: 82d7bcb6067fb11478f9ddf0903157bd, type: 3}
-  _ghostPrefab: {fileID: 463762144606901678, guid: b23093dc222ff5d4c97e675ccd60e863, type: 3}
+  _invisiblePrefab: {fileID: 463762144606901678, guid: b23093dc222ff5d4c97e675ccd60e863, type: 3}
   _heightScoreMax: 700
   _rankBonus: 2c010000c800000064000000
   MapSeed:

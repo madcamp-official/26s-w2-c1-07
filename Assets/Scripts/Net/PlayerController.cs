@@ -6,6 +6,8 @@ using UnityEngine;
 using UnityEngine.InputSystem; // 새 Input System (Keyboard.current / Mouse.current)
 using RouletteParty.Match;      // MatchManager, MatchPhase, Structure
 using RouletteParty.Map;        // ClimbMapGenerator (PREP 비행 범위 클램프)
+using RouletteParty.Audio;      // AudioManager (점프/착지/탈락 사운드)
+using RouletteParty.Core;       // SettingsManager (감도/Y반전/패널 열림 상태)
 
 /// <summary>
 /// 소유자 권위(ClientNetworkTransform) 3인칭 플레이어. 클라이밍 전환 명세 4절 구현.
@@ -130,7 +132,11 @@ public class PlayerController : NetworkBehaviour
     }
 
     // ============================ 탈락 상태 (전 클라) ============================
-    void OnDeadChanged(bool _, bool now) => ApplyDeadVisual(now);
+    void OnDeadChanged(bool _, bool now)
+    {
+        ApplyDeadVisual(now);
+        if (now) AudioManager.Play(Sfx.Death); // 누군가의 탈락은 전원에게 들린다(전 클라에서 실행됨)
+    }
 
     void ApplyDeadVisual(bool dead)
     {
@@ -216,12 +222,18 @@ public class PlayerController : NetworkBehaviour
     void HandleMouseLook()
     {
         if (_cursorFreeOverride) return;
+        if (SettingsManager.IsOpen) return; // 설정 패널 조작 중 시점 회전 방지
         var mouse = Mouse.current;
         if (mouse == null) return;
 
+        // 감도/Y반전은 설정(SettingsManager) 우선, 없으면 인스펙터 값 폴백.
+        var opt = SettingsManager.Instance;
+        float sens = opt != null ? opt.MouseSensitivity : mouseSensitivity;
+        bool  inv  = opt != null ? opt.InvertY : invertY;
+
         Vector2 d = mouse.delta.ReadValue();
-        _yaw   += d.x * mouseSensitivity;
-        _pitch += (invertY ? d.y : -d.y) * mouseSensitivity;
+        _yaw   += d.x * sens;
+        _pitch += (inv ? d.y : -d.y) * sens;
         _pitch  = Mathf.Clamp(_pitch, aimMinPitch, aimMaxPitch);
     }
 
@@ -270,7 +282,10 @@ public class PlayerController : NetworkBehaviour
         if (_cc.isGrounded && _verticalVelocity < 0f)
             _verticalVelocity = -2f;
         if (jump && _cc.isGrounded)
+        {
             _verticalVelocity = Mathf.Sqrt(jumpHeight * -2f * gravity);
+            AudioManager.Play(Sfx.Jump);
+        }
         _verticalVelocity += gravity * Time.deltaTime;
 
         Vector3 velocity = dir * moveSpeed;
@@ -295,6 +310,7 @@ public class PlayerController : NetworkBehaviour
             if (_wasAirborne)
             {
                 float fall = _airApexY - y;
+                if (fall >= 0.5f) AudioManager.Play(Sfx.Land); // 잔걸음 접지 스팸 방지 하한
                 if (fall >= fallReportMin)
                     ReportFallServerRpc(fall);
                 _wasAirborne = false;
@@ -328,6 +344,7 @@ public class PlayerController : NetworkBehaviour
     // ============================ 커서 ============================
     void HandleCursor(bool aim)
     {
+        if (SettingsManager.IsOpen) { SetCursor(false); return; } // 설정 패널 중엔 커서 해제
         var kb = Keyboard.current;
         if (kb != null && kb.escapeKey.wasPressedThisFrame)
             _cursorFreeOverride = !_cursorFreeOverride;

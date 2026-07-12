@@ -47,6 +47,7 @@ namespace RouletteParty.UI
         private Text _hlTitle;
         private Text _hlTrophy;
         private Text _hlTopic;
+        private Text _hlStats;   // 라운드 통계(최대 낙하·낚시왕·낚임왕·탈락 수)
         private RectTransform _hlRowsParent;
         private readonly List<Row> _hlRows = new List<Row>();
 
@@ -223,6 +224,10 @@ namespace RouletteParty.UI
             _hlRowsParent = MakeRect(_highlightRoot, "HLRows");
             SetRect(_hlRowsParent, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0.5f, 1f),
                     new Vector2(500, 200), new Vector2(0, -170));
+
+            _hlStats = MakeText(_highlightRoot, "", 22, TextAnchor.UpperCenter, new Color(1f, 0.87f, 0.55f, 1f));
+            SetRect(_hlStats.rectTransform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0.5f, 1f),
+                    new Vector2(540, 130), new Vector2(0, -290));
 
             // --- 결과 루트(전체 화면) ---
             _resultRoot = MakeRect(_canvasRT, "ResultRoot");
@@ -461,6 +466,26 @@ namespace RouletteParty.UI
             }
             _roundResults.Sort(_byRankAsc);
             int show = Mathf.Min(3, _roundResults.Count);
+
+            // 라운드 통계(현재 라운드 것일 때만 표시. Round == 0 = 아직 집계 없음).
+            var st = m.RoundStats;
+            if (st.Round == m.Round)
+            {
+                string s = "";
+                if (st.BiggestFallVictim != RoundStats.None && st.BiggestFallHeight > 0f)
+                    s += $"최대 낙하  {PlayerPalette.NameFor(st.BiggestFallVictim)}  {st.BiggestFallHeight:0.0} m\n";
+                if (st.BestBaiter != RoundStats.None && st.BestBaiterCount > 0)
+                    s += $"낚시왕  {PlayerPalette.NameFor(st.BestBaiter)}  ({st.BestBaiterCount}회 낚음)\n";
+                if (st.MostBaited != RoundStats.None && st.MostBaitedCount > 0)
+                    s += $"낚임왕  {PlayerPalette.NameFor(st.MostBaited)}  ({st.MostBaitedCount}회 당함)\n";
+                if (st.DeathCount > 0)
+                    s += $"탈락  {st.DeathCount}명";
+                _hlStats.text = s;
+            }
+            else
+            {
+                _hlStats.text = "";
+            }
 
             EnsureRows(_hlRows, _hlRowsParent.transform, show);
             for (int i = 0; i < show; i++)

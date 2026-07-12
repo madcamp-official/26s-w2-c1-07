@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using Unity.Netcode;
 using UnityEngine;
 using UnityEngine.Serialization;
+using RouletteParty.Audio; // AudioManager (설치/발동 사운드)
 
 namespace RouletteParty.Match
 {
@@ -69,6 +70,11 @@ namespace RouletteParty.Match
         {
             s_active.Add(this);
 
+            // 설치 확정음: PREP 중 스폰 = 방금 설치된 구조물(늦은 합류의 초기 동기화 재생은 페이즈 가드로 걸러짐).
+            var mm = MatchManager.Instance;
+            if (mm != null && mm.IsSpawned && mm.CurrentPhase == MatchPhase.Prep)
+                AudioManager.Play(Sfx.Place);
+
             if (_renderers != null && _renderers.Length > 0)
             {
                 _originalMats = new Material[_renderers.Length];
@@ -92,8 +98,10 @@ namespace RouletteParty.Match
 
             int state = ComputeState();
             if (state == _lastState) return;
+            bool initial = _lastState == -1; // 스폰 직후 첫 적용(늦은 합류 포함)에는 발동음 생략
             _lastState = state;
             ApplyState(state);
+            if (state == 2 && !initial) AudioManager.Play(Sfx.Reveal); // 충돌 공개 순간(전 클라)
         }
 
         int ComputeState()

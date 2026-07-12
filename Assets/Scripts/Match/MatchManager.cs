@@ -89,6 +89,8 @@ namespace RouletteParty.Match
         private NetworkVariable<ulong>      _matchWinner  = new NetworkVariable<ulong>(ulong.MaxValue);
         /// <summary>맵 랜덤 생성 시드(매치당 1회 갱신). 전 피어가 이 시드로 동일 맵을 로컬 생성.</summary>
         public NetworkVariable<int> MapSeed = new NetworkVariable<int>(0);
+        // 라운드 통계(하이라이트 카드용). 서버가 라운드 종료 시 1회 채운다.
+        private NetworkVariable<RoundStats> _roundStats = new NetworkVariable<RoundStats>(RoundStats.Empty);
 
         // 라운드별 순위 행(클라 점수판/하이라이트/결과 UI 데이터)
         private NetworkList<RoundResult> _results = new NetworkList<RoundResult>();
@@ -97,6 +99,7 @@ namespace RouletteParty.Match
         private readonly Dictionary<ulong, PlayerRuntime> _players    = new Dictionary<ulong, PlayerRuntime>();
         private readonly Dictionary<ulong, int>           _totalScore = new Dictionary<ulong, int>();
         private readonly System.Random _rng = new System.Random();
+        private readonly MatchStatsTracker _stats = new MatchStatsTracker(); // 서버 전용 라운드 이벤트 로거
         private bool _graceApplied;
 
         // 이번 PREP 에 사용한 설치 수(이월 없음 규칙: PREP 진입마다 리셋)
@@ -120,6 +123,8 @@ namespace RouletteParty.Match
                 ? Mathf.Max(0f, (float)(_phaseEndTime.Value - NetworkManager.ServerTime.Time))
                 : 0f;
         public NetworkList<RoundResult> Results => _results;
+        /// <summary>가장 최근 라운드 통계(하이라이트 카드용). Round == 0 이면 아직 없음.</summary>
+        public RoundStats RoundStats => _roundStats.Value;
         /// <summary>현재 라운드의 지급 개수(클라 UI 표시용).</summary>
         public int VisibleGrant   => GrantOf(_visibleAllowance, _round.Value);
         public int InvisibleGrant => GrantOf(_invisibleAllowance, _round.Value);
@@ -260,6 +265,7 @@ namespace RouletteParty.Match
             // MatchWinner 는 여기서 초기화하지 않는다: 직전 매치 챔피언을 다음 매치 RESULT 재계산 전까지 유지.
 
             DespawnAllStructures();          // 구조물은 매치 리셋에만 전체 제거(라운드 간 누적 유지)
+            _roundStats.Value = RoundStats.Empty;       // 직전 매치 통계 초기화
             MapSeed.Value = _rng.Next(1, int.MaxValue); // 매 매치 새 랜덤 타워
         }
 
@@ -282,6 +288,7 @@ namespace RouletteParty.Match
         private void BeginPlay()
         {
             _graceApplied = false;
+            _stats.BeginRound();
             int i = 0, n = NetworkManager.ConnectedClientsList.Count;
             foreach (var c in NetworkManager.ConnectedClientsList)
             {
@@ -360,6 +367,9 @@ namespace RouletteParty.Match
 
             int dmg = Mathf.CeilToInt(_fallDamageBase + (fallHeight - _fallDamageMinHeight) * _fallDamagePerMeter);
             pr.Hp -= dmg; // 체력은 서버 전용(비공개) — 로그도 남기지 않는다.
+
+            // 통계 집계(체력 수치는 넘기지 않는다: 비공개 정보 규칙 유지).
+            _stats.RecordFall(clientId, fallHeight, pr.Hp <= 0, NetworkManager.ServerTime.Time);
 
             if (pr.Hp <= 0)
             {
@@ -446,6 +456,10 @@ namespace RouletteParty.Match
             var ob = no.GetComponent<Structure>();
             if (ob == null || !ob.IsInvisibleKind) return;
             ob.RevealUntil.Value = NetworkManager.ServerTime.Time + ob.RevealDuration;
+
+            // 통계: 접촉자(보고자) 기록 -> 이후 낙하 피해가 이 설치자의 "낚시"로 귀속될 수 있다.
+            if (_phase.Value == MatchPhase.Play)
+                _stats.RecordReveal(rpcParams.Receive.SenderClientId, ob.OwnerId.Value, NetworkManager.ServerTime.Time);
         }
 
         // 매치 리셋에만 전체 제거(라운드 간 누적이 핵심 룰).
@@ -506,6 +520,7 @@ namespace RouletteParty.Match
             }
 
             _roundWinner.Value = rows.Count > 0 ? rows[0].id : ulong.MaxValue;
+            _roundStats.Value = _stats.Snapshot(_round.Value); // 라운드 통계 확정 -> 하이라이트 카드
             Debug.Log($"[Match] R{_round.Value} end: players={rows.Count} winner={_roundWinner.Value}");
         }
 
