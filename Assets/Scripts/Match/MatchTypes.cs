@@ -6,8 +6,8 @@ namespace RouletteParty.Match
     // 클라이밍 전환(docs/클라이밍_전환_명세서.md) 후의 매치 도메인 타입.
     // 룰렛/주제/게임 모드(IGameMode·Race/Height/Survive)/Course 는 전부 폐기: 단일 클라이밍 모드.
     //  - 복제 표시 상태(페이즈/라운드/타이머/승자/맵 시드)는 MatchManager 의 NetworkVariable.
-    //  - 라운드 판정 데이터(체력/사망 높이/정상 도달)는 서버 전용 PlayerRuntime(비복제).
-    //    체력은 플레이어 비공개 정보이므로 절대 복제/표시하지 않는다.
+    //  - 라운드 판정 데이터(낙하 추적/사망 높이/정상 도달)는 서버 전용 PlayerRuntime(비복제).
+    //    체력 시스템은 폐지 — 탈락은 낙하 거리 2규칙(MatchManager 시리얼라이즈드)로만 판정한다.
     //  - 라운드 순위는 기존 NetworkList<RoundResult> 를 그대로 재사용(직렬화 안정).
     // =====================================================================================
 
@@ -31,20 +31,26 @@ namespace RouletteParty.Match
     {
         public ulong ClientId;
         public int   SpawnIndex;
-        public int   Hp;             // 은닉 체력(서버 전용, 비공개)
         public bool  Alive = true;
         public float DeathHeight;    // 탈락 지점 높이 -> 점수 계산에 사용
         public bool  ReachedTop;     // 정상(y >= mapHeight) 도달 여부
         public float TopTime;        // 정상 도달 시각(PLAY 경과 초, 동률 tie-break)
 
-        public void ResetForRound(int hp, int spawnIndex)
+        // ---- 서버 낙하 추적(탈락 규칙 ①: 공중 낙하 거리, MatchManager.SamplePlayers) ----
+        public float ApexY;          // 낙하 기준 최고점(발끝 기준). 텔레포트/착지 시 리셋
+        public float LastY;          // 직전 샘플 높이(수직 속도 추정용)
+        public float FallStillTime;  // "하강 중 아님" 지속 시간(지지 상태 판정용)
+
+        public void ResetForRound(int spawnIndex)
         {
-            Hp = hp;
             SpawnIndex = spawnIndex;
             Alive = true;
             DeathHeight = 0f;
             ReachedTop = false;
             TopTime = 0f;
+            ApexY = 0f;
+            LastY = 0f;
+            FallStillTime = 0f;
         }
     }
 

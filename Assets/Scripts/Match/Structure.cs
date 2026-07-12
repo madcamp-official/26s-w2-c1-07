@@ -18,11 +18,15 @@ namespace RouletteParty.Match
     ///  - 콜라이더는 모든 클라에서 항상 켜져 있다(물리 공정성, 기존 규약 유지). 렌더러만 분기.
     ///  - 보이는 구조물(Wall/Cylinder): 생성 후 어떤 페이즈에서도 전원에게 보임(분기 없음).
     ///  - 보이지 않는 구조물(Invisible):
-    ///      PREP + 설치자 본인      -> 보임(반투명 머티리얼이 있으면 반투명)
+    ///      PREP + 설치자 본인      -> 반투명으로 보임(전용 머티리얼이 없으면 원본을 알파 낮춰 표시)
     ///      그 외 페이즈/타인       -> 안 보임(설치자 본인 포함)
     ///      플레이어 충돌(상호작용) -> 서버가 RevealUntil 기록, 그 시각까지 전원에게 보임.
     ///      공개/숨김 전환은 알파 페이드(_fadeInDuration/_fadeOutDuration)로 부드럽게 진행.
-    ///  - Type/OwnerId 는 서버가 Spawn() 이전에 세팅(ServerInit)해 초기 동기화에 싣는다.
+    ///      스폰 직후 Type 도착 전 잠깐 보이는 문제 방지: _renderers 가 할당된 프리팹은
+    ///      OnNetworkSpawn 에서 렌더러를 즉시 꺼 "기본 숨김"으로 시작한다(Update 가 다시 켬).
+    ///  - Type/OwnerId 는 서버가 Spawn() 직후 세팅(ServerInit, 스폰 전 쓰기는 리셋돼 유실됨).
+    ///  - 겹침 규칙: 설치물끼리 "접촉(면 맞대기)은 허용, 관통만 금지"(OverlapScan).
+    ///    구조물 위에 구조물을 쌓아 발판처럼 쓰는 플레이를 지원한다.
     /// </summary>
     [RequireComponent(typeof(NetworkObject))]
     public class Structure : NetworkBehaviour
@@ -36,9 +40,13 @@ namespace RouletteParty.Match
         [Tooltip("가시성 분기 대상 렌더러들. 보이지 않는 구조물 프리팹에서만 필요.")]
         [SerializeField] private Renderer[] _renderers;
 
-        [Tooltip("선택: PREP 중 설치자에게 보여줄 반투명 머티리얼. 비우면 원본 머티리얼로 보인다.")]
+        [Tooltip("선택: PREP 중 설치자에게 보여줄 반투명 머티리얼. 비우면 원본 머티리얼을 아래 알파로 낮춰 표시한다.")]
         [FormerlySerializedAs("_ghostOwnerMaterial")]
         [SerializeField] private Material _ownerPreviewMaterial;
+
+        [Tooltip("전용 머티리얼이 없을 때 설치자 PREP 표시에 쓸 알파(0~1). '내가 둔 투명 구조물'임을 알 수 있게 반투명으로.")]
+        [Range(0f, 1f)]
+        [SerializeField] private float _ownerPreviewAlpha = 0.45f;
 
         [Tooltip("플레이어 상호작용(충돌) 시 전원에게 공개되는 시간(초). 연속 충돌은 연장된다.")]
         [SerializeField] private float _revealDuration = 2f;
@@ -108,20 +116,30 @@ namespace RouletteParty.Match
         }
 
         /// <summary>
-        /// 설치 후보 AABB 가 스폰된 플레이어 설치 구조물 중 하나와 겹치는지(서버/클라 공용 판정).
-        /// gap = 표면 간 요구 틈(각 면 방향으로 후보 AABB 를 gap 만큼 확장 후 교차 검사).
-        /// 랜덤 타워 발판은 레지스트리에 없으므로 자동으로 검사 대상에서 제외(겹침 허용, 명세 유지).
+        /// 설치 후보 AABB 와 스폰된 플레이어 설치 구조물의 겹침 스캔(서버/클라 공용 판정).
+        /// 규칙: 접촉(면 맞대기)은 허용, 관통만 금지 — 후보 AABB 를 tolerance 만큼 면당 축소 후
+        /// 교차 검사하므로 구조물 위에 구조물을 얹는(쌓는) 설치가 통과한다.
+        /// 결과는 viewer(요청자) 기준으로 분리:
+        ///  - visibleHit: viewer 에게 보이는 설치물과 관통(보이는 구조물 또는 viewer 본인의 투명 구조물)
+        ///  - hiddenHit : viewer 에게 숨겨진 타인의 투명 구조물과 관통(함정 위치 비노출용 별도 처리)
+        /// 클라 프리뷰는 visibleHit 만 빨간색 근거로 쓰고, 서버는 둘 다 거부하되 hiddenHit 단독이면
+        /// 요청자에게 "함정" 통지를 보낸다. 랜덤 레인 발판은 레지스트리 밖 -> 검사 제외(겹침 허용).
         /// </summary>
-        public static bool OverlapsAny(Bounds candidate, float gap)
+        public static void OverlapScan(Bounds candidate, float tolerance, ulong viewer,
+                                       out bool visibleHit, out bool hiddenHit)
         {
-            candidate.Expand(gap * 2f); // Expand 는 전체 크기 기준 -> 면당 gap 확장
+            visibleHit = false; hiddenHit = false;
+            candidate.Expand(-tolerance * 2f); // Expand 는 전체 크기 기준 -> 면당 tolerance 축소
             for (int i = 0; i < s_active.Count; i++)
             {
                 var s = s_active[i];
                 if (s == null || !s.IsSpawned) continue;
-                if (candidate.Intersects(s.WorldBounds)) return true;
+                if (!candidate.Intersects(s.WorldBounds)) continue;
+
+                bool hiddenToViewer = s.IsInvisibleKind && s.OwnerId.Value != viewer;
+                if (hiddenToViewer) hiddenHit = true; else visibleHit = true;
+                if (visibleHit && hiddenHit) return; // 둘 다 확정되면 조기 종료
             }
-            return false;
         }
 
         /// <summary>
@@ -159,7 +177,15 @@ namespace RouletteParty.Match
             {
                 _originalMats = new Material[_renderers.Length];
                 for (int i = 0; i < _renderers.Length; i++)
-                    if (_renderers[i] != null) _originalMats[i] = _renderers[i].sharedMaterial;
+                {
+                    if (_renderers[i] == null) continue;
+                    _originalMats[i] = _renderers[i].sharedMaterial;
+                    // 기본 숨김으로 시작: Type 은 Spawn 이후에 서버가 쓰므로(ServerInit) 타 클라에는
+                    // 첫 몇 프레임 Wall(0)로 도착한다. 이때 Update 의 IsInvisibleKind 가드가 렌더러를
+                    // 프리팹 기본값(켜짐)으로 방치해 투명 구조물이 잠깐 보이는 문제 -> 여기서 즉시 끈다.
+                    // (_renderers 는 투명 구조물 프리팹에만 할당되는 규약. Type 도착 후 Update 가 다시 켠다.)
+                    _renderers[i].enabled = false;
+                }
             }
             _lastState = -1; // 첫 프레임에 강제 적용
         }
@@ -221,12 +247,29 @@ namespace RouletteParty.Match
                 var r = _renderers[i];
                 if (r == null) continue;
 
-                // 설치자 PREP 프리뷰: 페이드와 무관한 별도 표시(기존 동작 유지).
+                // 설치자 PREP 프리뷰: 페이드와 무관한 별도 표시.
+                // 전용 머티리얼이 없으면 페이드용 투명 복제본을 재사용해 원본 색 그대로 알파만 낮춘다
+                // -> 설치자가 "저건 내가 둔 투명 구조물"임을 구분할 수 있다(원본과 동일하게 보이지 않음).
                 if (state == 1)
                 {
                     r.enabled = true;
                     if (_ownerPreviewMaterial != null) r.sharedMaterial = _ownerPreviewMaterial;
-                    else if (_originalMats != null && _originalMats[i] != null) r.sharedMaterial = _originalMats[i];
+                    else
+                    {
+                        EnsureFadeMats();
+                        var pm = _fadeMats != null ? _fadeMats[i] : null;
+                        if (pm != null)
+                        {
+                            Color pc = _origColors[i];
+                            pc.a *= _ownerPreviewAlpha;
+                            pm.color = pc;
+                            r.sharedMaterial = pm;
+                        }
+                        else if (_originalMats != null && _originalMats[i] != null)
+                        {
+                            r.sharedMaterial = _originalMats[i]; // 폴백 실패(커스텀 셰이더 등) -> 원본
+                        }
+                    }
                     continue;
                 }
 

@@ -12,11 +12,19 @@ namespace RouletteParty.Match
     ///
     /// PREP 동안 플레이어는 자유 비행 카메라(PlayerController)로 맵을 날아다니고, 이 컴포넌트가:
     ///  - 종류 선택: 1(벽)/2(원기둥) = 보이는 구조물, 3 = 보이지 않는 구조물. R = 90도 회전.
-    ///  - 설치: 화면 중앙 조준점 레이캐스트 히트점에 좌클릭 -> PlaceStructureServerRpc.
+    ///  - 설치 모드(Q 토글):
+    ///      표면 모드(기본) = 화면 중앙 조준점 레이캐스트 히트점. 설치된 구조물을 조준하면
+    ///                        그 구조물 AABB 의 윗면으로 자동 스냅(구조물 위에 쌓기).
+    ///      공중 모드       = 카메라 정면 거리 d 지점(지면 불필요). 휠 위/아래로 d 조절.
+    ///                        전환 순간 d 를 현재 조준점 거리로 초기화 -> 프리뷰가 튀지 않음.
+    ///  - 설치: 좌클릭 -> PlaceStructureServerRpc.
     ///  - 블루프린트(배치 프리뷰): 실제 구조물 프리팹(MatchManager.PrefabFor)을 인스턴스화해
     ///    물리/네트워크/로직을 제거하고 렌더러만 남긴 뒤 반투명 재질로 교체 -> 실물과 1:1 일치.
     ///    새 구조물이 추가돼도 프리팹만 연결하면 블루프린트는 자동으로 따라온다.
-    ///    설치 가능(볼륨 안) = 초록, 불가 = 빨강. 잔여 개수 0 이면 블루프린트 자체를 숨긴다.
+    ///    설치 가능(허용 범위 안, 시작 섬 영역 제외) = 초록, 불가 = 빨강. 잔여 0 이면 숨김.
+    ///    겹침 판정은 "나에게 보이는 설치물"만 검사 — 타인의 투명 구조물(함정)은 프리뷰를
+    ///    빨갛게 만들지 않는다(가져다 대는 것만으로 함정이 드러나면 안 됨). 실제로 그 자리에
+    ///    설치를 시도하면 서버가 거부하고 "함정" 경고 문구를 이 클라에만 보낸다(잔여 소모 없음).
     ///  - 잔여 개수: 라운드 지급량 - 이번 PREP 에 설치한 수(이월 없음). 스폰된 내 구조물 수의
     ///    PREP 시작 스냅샷 대비 증가분으로 계산(서버 확정 결과와 일치).
     /// </summary>
@@ -30,8 +38,22 @@ namespace RouletteParty.Match
         [Tooltip("프리뷰 색(설치 불가).")]
         [SerializeField] private Color _badColor = new Color(1f, 0.3f, 0.3f, 0.45f);
 
+        [Header("공중 설치 모드 (Q 토글, 휠로 거리 조절)")]
+        [Tooltip("공중 설치 거리 최소(m).")]
+        [SerializeField] private float _airDistanceMin = 2f;
+        [Tooltip("공중 설치 거리 최대(m).")]
+        [SerializeField] private float _airDistanceMax = 30f;
+        [Tooltip("휠 1노치당 거리 변화(m). 위 = 멀어짐, 아래 = 다가옴.")]
+        [SerializeField] private float _airDistanceStep = 1f;
+
+        [Tooltip("함정 겹침 거부 시 경고 문구 표시 시간(초).")]
+        [SerializeField] private float _trapToastDuration = 2.5f;
+
         private StructureType _selected = StructureType.Wall;
         private int _yawStep;
+        private bool _airMode;            // false = 표면(조준점) 모드, true = 공중(거리 d) 모드
+        private float _airDistance = 6f;  // 공중 모드 설치 거리(전환 순간 조준점 거리로 재설정)
+        private float _trapToastUntil;    // 이 시각(unscaledTime)까지 함정 경고 표시
 
         // PREP 시작 시 내 구조물 수 스냅샷(잔여 계산용)
         private bool _inPrep;
@@ -46,13 +68,19 @@ namespace RouletteParty.Match
         private GameObject _activeBlueprint;
         private Material _previewMat;
 
-        private readonly Rect _panelRect = new Rect(10, 290, 300, 210);
+        private readonly Rect _panelRect = new Rect(10, 290, 300, 230);
         private GUIStyle _rich;
+        private GUIStyle _toastStyle;
 
         private bool Active =>
             MatchManager.Instance != null &&
             MatchManager.Instance.IsSpawned &&
             MatchManager.Instance.CurrentPhase == MatchPhase.Prep;
+
+        // 함정 겹침 거부 통지(서버 -> 나에게만 오는 RPC) 구독. 문구 표시는 OnGUI.
+        private void OnEnable()  { MatchManager.PlacementDeniedByTrap += OnTrapDenied; }
+        private void OnDisable() { MatchManager.PlacementDeniedByTrap -= OnTrapDenied; }
+        private void OnTrapDenied() { _trapToastUntil = Time.unscaledTime + _trapToastDuration; }
 
         private void Update()
         {
@@ -62,6 +90,7 @@ namespace RouletteParty.Match
             if (active && !_inPrep)
             {
                 _inPrep = true;
+                _airMode = false; // 매 PREP 은 기본(표면) 모드로 시작
                 CountMine(out _baseVisible, out _baseInvisible);
             }
             else if (!active && _inPrep)
@@ -71,6 +100,9 @@ namespace RouletteParty.Match
             }
             if (!active) return;
 
+            var pc = LocalPlayer();
+            if (pc == null) { HideBlueprint(); return; }
+
             var kb = Keyboard.current;
             if (kb != null)
             {
@@ -78,12 +110,46 @@ namespace RouletteParty.Match
                 else if (kb.digit2Key.wasPressedThisFrame) _selected = StructureType.Cylinder;
                 else if (kb.digit3Key.wasPressedThisFrame) _selected = StructureType.Invisible;
                 if (kb.rKey.wasPressedThisFrame) _yawStep = (_yawStep + 1) & 3;
+
+                // 설치 모드 토글. 공중 모드 진입 시 거리를 "현재 조준점까지"로 초기화해
+                // 블루프린트가 그 자리에서 이어지게 한다(전환 순간 튀지 않음).
+                if (kb.qKey.wasPressedThisFrame)
+                {
+                    _airMode = !_airMode;
+                    if (_airMode)
+                        _airDistance = Mathf.Clamp(
+                            Vector3.Distance(pc.AimRay.origin, pc.AimPoint),
+                            _airDistanceMin, _airDistanceMax);
+                }
             }
 
-            // 조준점 = 로컬 PlayerController 의 AimPoint(자기 몸 콜라이더 제외 처리 완료).
-            var pc = LocalPlayer();
-            if (pc == null) { HideBlueprint(); return; }
-            Vector3 point = pc.AimPoint;
+            // 설치점 계산.
+            Vector3 point;
+            if (_airMode)
+            {
+                // 공중 모드: 카메라 정면 거리 d 지점. 휠 위 = 멀어짐, 아래 = 다가옴.
+                var wheel = Mouse.current;
+                if (wheel != null)
+                {
+                    float sy = wheel.scroll.ReadValue().y;
+                    if (sy > 0.01f) _airDistance += _airDistanceStep;
+                    else if (sy < -0.01f) _airDistance -= _airDistanceStep;
+                    _airDistance = Mathf.Clamp(_airDistance, _airDistanceMin, _airDistanceMax);
+                }
+                point = pc.AimRay.origin + pc.AimRay.direction * _airDistance;
+            }
+            else
+            {
+                // 표면 모드: 조준점 = 로컬 PlayerController 의 AimPoint(자기 몸 콜라이더 제외 처리 완료).
+                point = pc.AimPoint;
+
+                // 설치된 구조물을 조준하면 그 윗면으로 스냅 -> 옆면을 가져다 대도 위에 올라간다
+                // (구조물을 발판처럼 쌓는 플레이). 서버는 받은 좌표를 그대로 검증하므로 추가 배선 불필요.
+                var col = pc.AimHitCollider;
+                var st = col != null ? col.GetComponentInParent<Structure>() : null;
+                if (st != null && st.IsSpawned)
+                    point.y = st.WorldBounds.max.y;
+            }
 
             // 선택 종류의 잔여 개수가 없으면 블루프린트 자체를 표시하지 않는다(설치 클릭도 차단).
             bool invisible = _selected == StructureType.Invisible;
@@ -96,10 +162,11 @@ namespace RouletteParty.Match
             Vector3 finalPos = point + Vector3.up * lift;
 
             // 블루프린트를 먼저 최종 트랜스폼에 놓은 뒤(회전 반영된 렌더 AABB 가 필요),
-            // 서버 검증의 완전한 거울(볼륨 + 설치물 AABB 겹침)로 판정 -> 초록이면 반드시 설치된다.
+            // 설치 허용 범위·시작 섬 금지 + "나에게 보이는" 설치물과의 겹침으로 판정.
+            // 초록이어도 숨겨진 함정과 겹치면 서버가 거부한다(OverlapsVisiblePlaced 주석 참조).
             ShowBlueprint(bp, finalPos);
             var gen = ClimbMapGenerator.Instance;
-            bool ok = bp != null && gen != null && gen.InsideVolume(point, 0.1f) && !OverlapsPlaced(bp);
+            bool ok = bp != null && gen != null && gen.IsPlacementAllowed(point, 0.1f) && !OverlapsVisiblePlaced(bp);
             TintBlueprint(ok);
 
             var mouse = Mouse.current;
@@ -202,13 +269,18 @@ namespace RouletteParty.Match
             }
         }
 
-        // 서버 겹침 검증(Structure.OverlapsAny)의 거울. 최종 트랜스폼에 놓인 블루프린트의
-        // 렌더 AABB(서버도 스폰 전 인스턴스에서 같은 값 계산) vs 스폰된 설치물의 콜라이더 AABB.
-        private bool OverlapsPlaced(GameObject bp)
+        // 서버 겹침 검증(Structure.OverlapScan)의 부분 거울: "나에게 보이는" 설치물만 검사.
+        // 타인의 투명 구조물(함정)은 여기서 의도적으로 무시한다 — 프리뷰가 빨개지면 가져다
+        // 대는 것만으로 함정 위치가 드러나기 때문. 그 겹침은 설치 시도 시 서버가 거부 + 통지.
+        // (따라서 이 프리뷰는 "초록이면 반드시 설치"가 아니라 "초록 = 내가 아는 한 설치 가능".)
+        private bool OverlapsVisiblePlaced(GameObject bp)
         {
             var mm = MatchManager.Instance;
-            float gap = mm != null ? mm.StructureGap : 0f;
-            return Structure.OverlapsAny(Structure.RenderBounds(bp), gap);
+            var nm = NetworkManager.Singleton;
+            float tol = mm != null ? mm.OverlapTolerance : 0f;
+            ulong me = nm != null ? nm.LocalClientId : 0UL;
+            Structure.OverlapScan(Structure.RenderBounds(bp), tol, me, out bool visibleHit, out _);
+            return visibleHit;
         }
 
         private void ShowBlueprint(GameObject bp, Vector3 finalPos)
@@ -257,12 +329,28 @@ namespace RouletteParty.Match
             GUILayout.Space(4);
             GUILayout.Label($"종류  <b>[1]</b> 벽  <b>[2]</b> 원기둥  <b>[3]</b> 투명(안 보임)", _rich);
             GUILayout.Label($"선택: <b>{TypeKorean(_selected)}</b>   회전 <b>[R]</b> ({_yawStep * 90}°)", _rich);
+            GUILayout.Label(_airMode
+                ? $"모드 <b>[Q]</b>: <b>공중</b> (거리 {_airDistance:0.#}m, 휠로 조절)"
+                : "모드 <b>[Q]</b>: <b>표면</b> (구조물 조준 시 그 위로 스냅)", _rich);
 
             GUILayout.Space(4);
             GUILayout.Label($"남은 개수  보이는 <b>{RemainingVisible()}</b>/{MatchManager.Instance.VisibleGrant}" +
                             $"   안 보이는 <b>{RemainingInvisible()}</b>/{MatchManager.Instance.InvisibleGrant}", _rich);
-            GUILayout.Label("조준점에 <b>좌클릭</b>으로 설치 (설치물은 3라운드 누적)", _rich);
+            GUILayout.Label("<b>좌클릭</b>으로 설치 (설치물은 3라운드 누적)", _rich);
             GUILayout.EndArea();
+
+            // 함정 겹침 거부 경고(서버 통지). 화면 중앙 위쪽에 잠깐 표시.
+            if (Time.unscaledTime < _trapToastUntil)
+            {
+                if (_toastStyle == null)
+                    _toastStyle = new GUIStyle(GUI.skin.box)
+                    {
+                        fontSize = 28, fontStyle = FontStyle.Bold,
+                        alignment = TextAnchor.MiddleCenter,
+                        normal = { textColor = new Color(1f, 0.45f, 0.35f) }
+                    };
+                GUI.Box(new Rect(960 - 240, 340, 480, 52), "이 근처에 함정이 있습니다!", _toastStyle);
+            }
         }
 
         private static string TypeKorean(StructureType t)

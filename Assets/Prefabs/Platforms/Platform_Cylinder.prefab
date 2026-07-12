@@ -11,7 +11,7 @@ GameObject:
   - component: {fileID: 7026625137691161912}
   - component: {fileID: 2413536848033583058}
   - component: {fileID: 3645551005075597965}
-  - component: {fileID: 6836100210633312103}
+  - component: {fileID: 3554907729264462240}
   m_Layer: 0
   m_Name: Cylinder
   m_TagString: Untagged
@@ -29,7 +29,7 @@ Transform:
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
   m_LocalPosition: {x: 0, y: 0, z: 0}
-  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_LocalScale: {x: 3, y: 0.25, z: 3}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 8570992221812391115}
@@ -91,7 +91,7 @@ MeshRenderer:
   m_SortingOrder: 0
   m_MaskInteraction: 0
   m_AdditionalVertexStreams: {fileID: 0}
---- !u!64 &6836100210633312103
+--- !u!64 &3554907729264462240
 MeshCollider:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -122,10 +122,9 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 8570992221812391115}
-  - component: {fileID: 5013035547886251674}
-  - component: {fileID: 2485006283498033580}
+  - component: {fileID: -4043728930769492149}
   m_Layer: 0
-  m_Name: Structure_Cylinder
+  m_Name: Platform_Cylinder
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -147,7 +146,7 @@ Transform:
   - {fileID: 7026625137691161912}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!114 &5013035547886251674
+--- !u!114 &-4043728930769492149
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -156,53 +155,9 @@ MonoBehaviour:
   m_GameObject: {fileID: 5695219427646287698}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: d5a57f767e5e46a458fc5d3c628d0cbb, type: 3}
+  m_Script: {fileID: 11500000, guid: c2ba42d505b1aa64897230db7ea197b5, type: 3}
   m_Name: 
-  m_EditorClassIdentifier: Unity.Netcode.Runtime::Unity.Netcode.NetworkObject
-  GlobalObjectIdHash: 1885827500
-  InScenePlacedSourceGlobalObjectIdHash: 0
-  DeferredDespawnTick: 0
-  Ownership: 1
-  AlwaysReplicateAsRoot: 0
-  SynchronizeTransform: 1
-  <InScenePlaced>k__BackingField: 0
-  ActiveSceneSynchronization: 0
-  SceneMigrationSynchronization: 0
-  SpawnWithObservers: 1
-  DontDestroyWithOwner: 0
-  AutoObjectParentSync: 1
-  SyncOwnerTransformWhenParented: 1
-  AllowOwnerToParent: 0
---- !u!114 &2485006283498033580
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 5695219427646287698}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 441fdd073c09d4c48aaeb73a7689c592, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::RouletteParty.Match.Obstacle
-  ShowTopMostFoldoutHeaderGroup: 1
-  _renderers: []
-  _ownerPreviewMaterial: {fileID: 0}
-  _revealDuration: 2
-  _fadeInDuration: 0.15
-  _fadeOutDuration: 0.6
-  Type:
-    UpdateTraits:
-      MinSecondsBetweenUpdates: 0
-      MaxSecondsBetweenUpdates: 0
-    m_InternalValue: 0
-  OwnerId:
-    UpdateTraits:
-      MinSecondsBetweenUpdates: 0
-      MaxSecondsBetweenUpdates: 0
-    m_InternalValue: 0
-  RevealUntil:
-    UpdateTraits:
-      MinSecondsBetweenUpdates: 0
-      MaxSecondsBetweenUpdates: 0
-    m_InternalValue: 0
+  m_EditorClassIdentifier: Assembly-CSharp::RouletteParty.Map.PlatformSegment
+  _entryAnchor: {fileID: 0}
+  _exitAnchor: {fileID: 0}
+  _weight: 1

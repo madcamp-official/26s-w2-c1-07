@@ -83,14 +83,29 @@ namespace RouletteParty.Match
 
         private struct TouchMark { public ulong Owner; public double Time; }
 
+        /// <summary>탈락 이벤트(위치 포함). 추후 하이라이트("발판 영역 내 단기 킬 집중") 판정의
+        /// 입력 데이터 — 위치를 ClimbMapGenerator.TryGetRegionAt 으로 영역에 귀속시키면 된다.</summary>
+        public readonly struct DeathEvent
+        {
+            public readonly ulong   Victim;
+            public readonly Vector3 Position; // 탈락 확정 시점의 월드 좌표
+            public readonly double  Time;     // 서버 시각
+            public DeathEvent(ulong victim, Vector3 position, double time)
+            { Victim = victim; Position = position; Time = time; }
+        }
+
         // victim -> 마지막 투명 구조물 접촉 기록
         private readonly Dictionary<ulong, TouchMark> _lastTouch = new Dictionary<ulong, TouchMark>();
         private readonly Dictionary<ulong, int> _baitsByOwner   = new Dictionary<ulong, int>();
         private readonly Dictionary<ulong, int> _baitedByVictim = new Dictionary<ulong, int>();
+        private readonly List<DeathEvent> _deathEvents = new List<DeathEvent>();
 
         private ulong _fallVictim = RoundStats.None;
         private float _fallHeight;
         private int   _deaths;
+
+        /// <summary>이번 라운드 탈락 이벤트 목록(서버 전용, 시간순). 하이라이트 구현 시 사용.</summary>
+        public IReadOnlyList<DeathEvent> DeathEvents => _deathEvents;
 
         /// <summary>PLAY 시작 시 호출. 라운드 통계 초기화.</summary>
         public void BeginRound()
@@ -98,6 +113,7 @@ namespace RouletteParty.Match
             _lastTouch.Clear();
             _baitsByOwner.Clear();
             _baitedByVictim.Clear();
+            _deathEvents.Clear();
             _fallVictim = RoundStats.None;
             _fallHeight = 0f;
             _deaths = 0;
@@ -109,10 +125,15 @@ namespace RouletteParty.Match
             _lastTouch[victim] = new TouchMark { Owner = structureOwner, Time = serverTime };
         }
 
-        /// <summary>낙하 데미지 확정(ApplyFallDamage) 시 호출.</summary>
-        public void RecordFall(ulong victim, float fallHeight, bool died, double serverTime)
+        /// <summary>낙하 이벤트 확정(MatchManager 착지 보고/공중 낙하 탈락) 시 호출.
+        /// position = 이벤트 시점 월드 좌표(탈락이면 DeathEvents 에 기록 -> 하이라이트 대비).</summary>
+        public void RecordFall(ulong victim, float fallHeight, bool died, double serverTime, Vector3 position)
         {
-            if (died) _deaths++;
+            if (died)
+            {
+                _deaths++;
+                _deathEvents.Add(new DeathEvent(victim, position, serverTime));
+            }
 
             if (fallHeight > _fallHeight)
             {

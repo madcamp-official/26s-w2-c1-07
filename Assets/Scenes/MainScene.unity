@@ -148,27 +148,37 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: e23e7298117ab9544a97706551ed67d9, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::ClimbMapGenerator
-  mapWidth: 6
-  mapDepth: 6
-  mapHeight: 50
-  floorWidth: 24
-  floorDepth: 24
-  spawnAreaGap: 1
-  spawnAreaWidth: 6
-  spawnAreaDepth: 6
-  spawnAreaColor: {r: 0.25, g: 0.85, b: 0.55, a: 1}
-  sliceCount: 30
-  structuresPerSlice: 2
-  minStructureSpacing: 0.4
-  maxPlacementAttempts: 30
-  showBoundaryWalls: 0
+  islandWidth: 10
+  islandThickness: 2
+  islandPadding: 4
+  islandMaterial: {fileID: 2100000, guid: 62f68848710908547ae7d49f275481cf, type: 2}
+  laneCount: 3
+  laneSpacing: 8
+  platformsPerLane: 14
+  risePerMeter: 0.3
+  avgGap: 2.5
+  jumpableGapRange: {x: 1.2, y: 2.2}
+  blockedGapRange: {x: 4, y: 6}
+  blockedGapChance: 0.25
+  startGap: 1.5
+  laneHalfWidth: 1.5
+  lateralJitter: 1
+  platformPrefabs:
+  - {fileID: 3823038366554229154, guid: 171b8a476825aab4bbb06461301ba6c9, type: 3}
+  - {fileID: -4043728930769492149, guid: fbf43295181306b4a80f88701719cb69, type: 3}
+  fallbackPlatformSize: {x: 5, y: 0.5, z: 3}
   structureMaterials:
   - {fileID: 2100000, guid: ae14cd635a9d78a4fa84bf72d891d3a8, type: 2}
   - {fileID: 2100000, guid: d1623b0ab2d1cfe42a0dc05fd8d427cb, type: 2}
   - {fileID: 2100000, guid: 03ae293e04cc7c64fb0959ad0186c1c7, type: 2}
   - {fileID: 2100000, guid: 3a6648694b4348d40a238887d37a3f84, type: 2}
   - {fileID: 2100000, guid: 51cafc80f1db80e4ebd9559ce9aafca1, type: 2}
-  floorMaterial: {fileID: 2100000, guid: 62f68848710908547ae7d49f275481cf, type: 2}
+  regionPadding: 3
+  placementPadding: 4
+  placementHeadroom: 6
+  movementPadding: 8
+  movementHeadroom: 8
+  showBoundaryWalls: 0
 --- !u!4 &69890712
 Transform:
   m_ObjectHideFlags: 0
@@ -803,10 +813,8 @@ MonoBehaviour:
   _resultDuration: 14
   _finishGrace: 15
   spawnSpacingX: 2
-  _roundHp: 10
-  _fallDamageMinHeight: 5
-  _fallDamageBase: 2
-  _fallDamagePerMeter: 1.5
+  _lethalAirFall: 15
+  _lethalLandFall: 7
   _visibleAllowance: 030000000200000001000000
   _invisibleAllowance: 010000000200000003000000
   _structureGap: 0.02

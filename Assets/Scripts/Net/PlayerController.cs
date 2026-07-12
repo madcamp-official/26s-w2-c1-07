@@ -14,12 +14,13 @@ using RouletteParty.Core;       // SettingsManager (감도/Y반전/패널 열림
 ///
 /// 모드(소유자 로컬, 페이즈에 따라 자동 전환):
 ///  (A) 등반(PLAY 등): 배그식 3인칭 마우스룩. 점프 dy 최대 = jumpHeight(1).
-///      낙하 추적: 공중 최고점 - 착지점 >= fallReportMin 이면 서버에 보고(ReportFallServerRpc).
-///      체력·사망 판정은 서버(MatchManager)가 한다(체력은 비공개 정보라 클라는 모른다).
-///  (B) 준비(PREP): 본체는 바닥에 잠금, 자유 비행 고스트 카메라로 이동. WASD 는 x/z 수평
+///      낙하 추적: 공중 최고점 - 착지점 >= fallReportMin 이면 서버에 착지 보고(ReportFallServerRpc).
+///      탈락 판정은 서버(MatchManager)가 한다: 착지 낙하 거리(규칙 ②)는 이 보고로,
+///      공중 낙하 거리(규칙 ①)는 서버가 위치 샘플링으로 직접 판정(체력 시스템 없음).
+///  (B) 준비(PREP): 본체는 시작 섬에 잠금, 자유 비행 고스트 카메라로 이동. WASD 는 x/z 수평
 ///      전용(시선 상하 무관), Space 상승 / Shift 하강. 마우스룩으로 시선만 회전.
-///      지면 범위(플레이어 이동 가능 범위와 동일) 전체를 날며 구조물을 설치한다(설치 자체는 PrepClientUI,
-///      설치 가능 위치는 구조물 생성 범위로 더 좁게 제한).
+///      이동 가능 범위(ClimbMapGenerator.MovementBounds = 맵 footprint + 여유) 전체를 날며
+///      구조물을 설치한다(설치 자체는 PrepClientUI, 설치 가능 위치는 더 좁게 제한).
 ///  (C) 탈락(Dead): 입력 잠금, 본체 렌더·콜라이더 off, 카메라는 생존자 추적 관전(좌클릭 순환).
 ///
 /// Dead 는 서버가 쓰는 NetworkVariable 로 전 클라에 전파된다(렌더 분기·관전 필터의 근거).
@@ -37,7 +38,7 @@ public class PlayerController : NetworkBehaviour
     public float turnSpeed = 12f;
 
     [Header("낙하 보고")]
-    [Tooltip("이 높이 이상 낙하 착지 시 서버에 보고한다(데미지 계산·차감은 서버).")]
+    [Tooltip("이 높이 이상 낙하 착지 시 서버에 보고한다(탈락 판정·통계는 서버). 착지 탈락 기준(MatchManager._lethalLandFall)보다 반드시 작아야 한다.")]
     public float fallReportMin = 3f;
 
     [Header("카메라(공통)")]
@@ -91,6 +92,8 @@ public class PlayerController : NetworkBehaviour
     public bool IsAiming { get; private set; }
     public Ray AimRay { get; private set; }
     public Vector3 AimPoint { get; private set; }
+    /// <summary>조준 레이가 맞힌 콜라이더(없으면 null). 구조물 윗면 스냅(PrepClientUI)이 사용.</summary>
+    public Collider AimHitCollider { get; private set; }
     /// <summary>탈락 여부(서버 write, 전 클라 read). 렌더·콜라이더·입력·관전의 단일 근거.</summary>
     public NetworkVariable<bool> Dead = new NetworkVariable<bool>(
         false, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
@@ -257,10 +260,13 @@ public class PlayerController : NetworkBehaviour
     }
 
     // ============================ 입력: 마우스룩 ============================
-    // 시선 초기화: 맵(타워) 중심을 바라보는 수평 방향 + 고정 피치. 페이즈 전환/텔레포트 시 호출.
+    // 시선 초기화: 맵 중심(footprint 중앙 = 레인 쪽)을 바라보는 수평 방향 + 고정 피치.
+    // 시작 섬에서 스폰 직후 자연스럽게 레인(+X) 방향을 보게 된다. 페이즈 전환/텔레포트 시 호출.
     void ResetLook()
     {
-        Vector3 toCenter = -transform.position;
+        var gen = ClimbMapGenerator.Instance;
+        Vector3 target = gen != null ? gen.MovementBounds.center : Vector3.zero;
+        Vector3 toCenter = target - transform.position;
         toCenter.y = 0f;
         if (toCenter.sqrMagnitude > 0.01f)
             _yaw = Quaternion.LookRotation(toCenter, Vector3.up).eulerAngles.y;
@@ -372,12 +378,12 @@ public class PlayerController : NetworkBehaviour
         }
     }
 
-    // 소유자 -> 서버. 데미지 계산·체력 차감·사망 판정은 서버(MatchManager, 체력 비공개).
+    // 소유자 -> 서버. 착지 낙하 거리 탈락 판정(규칙 ②)·통계 기록은 서버(MatchManager).
     [Rpc(SendTo.Server)]
     void ReportFallServerRpc(float fallHeight, RpcParams rpcParams = default)
     {
         var mm = MatchManager.Instance;
-        if (mm != null) mm.ApplyFallDamage(OwnerClientId, fallHeight);
+        if (mm != null) mm.ReportLanding(OwnerClientId, fallHeight);
     }
 
     // ============================ 보이지 않는 구조물 공개(충돌 상호작용) ============================
@@ -437,14 +443,15 @@ public class PlayerController : NetworkBehaviour
         _flyPos += planar * flySpeed * Time.deltaTime;
         _flyPos += Vector3.up * (up * flyVerticalSpeed * Time.deltaTime); // 수직은 Space/Shift 전용
 
-        // PREP 이동 범위로 클램프(경계 밖 시점 방지). 지면 크기(FloorWidth/FloorDepth) 기준 —
-        // 구조물 생성 범위(MapWidth/MapDepth)보다 넓어, 비행 자체는 지면 전체 위를 자유로이 오간다.
+        // PREP 이동 범위로 클램프(경계 밖 시점 방지). 이동/비행 범위(MovementBounds = 시작 섬 +
+        // 전체 레인 footprint + 여유) 기준 — 설치 허용 범위보다 넓어, 맵 전체 위를 자유로이 오간다.
         var gen = ClimbMapGenerator.Instance;
         if (gen != null)
         {
-            _flyPos.x = Mathf.Clamp(_flyPos.x, -gen.FloorWidth * 0.5f + 0.3f, gen.FloorWidth * 0.5f - 0.3f);
-            _flyPos.z = Mathf.Clamp(_flyPos.z, -gen.FloorDepth * 0.5f + 0.3f, gen.FloorDepth * 0.5f - 0.3f);
-            _flyPos.y = Mathf.Clamp(_flyPos.y, 0.5f, gen.MapHeight + 2f);
+            Bounds b = gen.MovementBounds;
+            _flyPos.x = Mathf.Clamp(_flyPos.x, b.min.x + 0.3f, b.max.x - 0.3f);
+            _flyPos.z = Mathf.Clamp(_flyPos.z, b.min.z + 0.3f, b.max.z - 0.3f);
+            _flyPos.y = Mathf.Clamp(_flyPos.y, 0.5f, b.max.y);
         }
     }
 
@@ -543,13 +550,19 @@ public class PlayerController : NetworkBehaviour
         int n = Physics.RaycastNonAlloc(r, _rayBuf, aimRayDistance, ~0, QueryTriggerInteraction.Ignore);
         float best = float.PositiveInfinity;
         bool found = false;
+        AimHitCollider = null;
         for (int i = 0; i < n; i++)
         {
             var col = _rayBuf[i].collider;
             if (col == null) continue;
             var ct = col.transform;
             if (ct == transform || ct.IsChildOf(transform)) continue;
-            if (_rayBuf[i].distance < best) { best = _rayBuf[i].distance; found = true; AimPoint = _rayBuf[i].point; }
+            if (_rayBuf[i].distance < best)
+            {
+                best = _rayBuf[i].distance; found = true;
+                AimPoint = _rayBuf[i].point;
+                AimHitCollider = col;
+            }
         }
         if (!found) AimPoint = r.origin + r.direction * aimRayDistance;
     }
