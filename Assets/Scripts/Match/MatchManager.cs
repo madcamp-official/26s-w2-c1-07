@@ -187,7 +187,13 @@ namespace RouletteParty.Match
             if (_phase.Value == MatchPhase.Play) SamplePlayers(now);
             else                                 RescueFallenPlayers();
 
-            if (now >= _phaseEndTime.Value) { AdvancePhase(); return; }
+            if (now >= _phaseEndTime.Value)
+            {
+                // 대기방(LobbyManager)이 씬에 있으면 LOBBY 는 타이머로 넘어가지 않는다:
+                // 호스트의 게임 시작(LobbyManager.StartGameServerRpc -> StartMatchFromLobby)만이
+                // PREP 로 보낸다. LobbyManager 가 없으면 기존처럼 자동 진행(우아한 성능 저하).
+                if (_phase.Value != MatchPhase.Lobby || !LobbyManager.WaitsForStart) { AdvancePhase(); return; }
+            }
 
             // 전원 탈락 시 조기 종료(2인 이상 매치에서만; 솔로 테스트는 풀타이머).
             if (_phase.Value == MatchPhase.Play && _players.Count >= 2 && _aliveCount.Value == 0)
@@ -226,6 +232,16 @@ namespace RouletteParty.Match
                 case MatchPhase.Intermission: break; // 대기만, 별도 로직 없음
                 case MatchPhase.Result:    ComputeMatchWinner(); break;
             }
+        }
+
+        /// <summary>
+        /// 대기방(LobbyManager)의 게임 시작 진입점. 시작 조건(호스트/인원/전원 준비) 검증은
+        /// LobbyManager 가 마친 상태고, 여기서는 FSM 관점의 유효성(서버/LOBBY)만 확인한다.
+        /// </summary>
+        public void StartMatchFromLobby()
+        {
+            if (!IsServer || !IsSpawned || _phase.Value != MatchPhase.Lobby) return;
+            AdvancePhase(); // LOBBY -> round=1, PREP (기존 FSM 경로 그대로)
         }
 
         private void AdvancePhase()

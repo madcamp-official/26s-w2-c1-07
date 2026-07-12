@@ -12,7 +12,8 @@ namespace RouletteParty.Core
     ///    AudioManager 가 이 매니저의 값을 읽어 적용한다.
     ///  - 감도/Y 반전은 PlayerController 가 매 프레임 이 매니저의 값을 우선 사용한다
     ///    (인스턴스가 없으면 인스펙터 값 폴백 -> 씬 구성과 무관하게 안전).
-    ///  - 씬 배치 불필요: 자동 부트스트랩(GameHUD 와 동일 패턴). 인스펙터 의존이 없어 가능하다.
+    ///  - 씬 배치: 전용 GameObject 에 컴포넌트로 추가한다(에디터 Add Component).
+    ///    인스턴스가 없어도 참조자(PlayerController/AudioManager)는 기본값으로 폴백해 안전하다.
     ///  - 패널이 열려 있는 동안 PlayerController 는 시점 회전을 멈추고 커서를 풀어준다(IsOpen 참조).
     /// </summary>
     [DisallowMultipleComponent]
@@ -47,16 +48,6 @@ namespace RouletteParty.Core
         private bool _open;
         private Rect _panelRect;
         private GUIStyle _title;
-
-        // 씬에 수동 배치가 없으면 자동 생성(수동 배치가 있으면 그것이 우선).
-        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
-        private static void AutoBootstrap()
-        {
-            if (FindAnyObjectByType<SettingsManager>() != null) return;
-            var go = new GameObject("SettingsManager (auto)");
-            go.AddComponent<SettingsManager>();
-            DontDestroyOnLoad(go);
-        }
 
         private void Awake()
         {

@@ -188,6 +188,16 @@ public class PlayerController : NetworkBehaviour
             ResetLook();
         }
 
+        // (L) 로비(대기방): LobbyUI 조작을 위해 커서를 풀고 이동/시선 입력을 잠근다(중력만 유지).
+        if (phase == MatchPhase.Lobby)
+        {
+            _flying = false;
+            IsAiming = false;
+            SetCursor(false);
+            if (_cc != null && _cc.enabled) ApplyMotion(Vector3.zero, false);
+            return;
+        }
+
         bool aim = useAimView;
         HandleCursor(aim);
         IsAiming = aim;

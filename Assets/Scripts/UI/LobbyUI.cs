@@ -1,0 +1,458 @@
+using Unity.Collections;
+using Unity.Netcode;
+using UnityEngine;
+using RouletteParty.Match; // MatchManager (로비 목록/RPC)
+using RouletteParty.Net;   // ConnectionService (방 만들기/참가/나가기)
+
+namespace RouletteParty.UI
+{
+    /// <summary>
+    /// 타이틀 -> 방 만들기/방 참가 -> 대기방 -> 게임 의 사용자 화면 흐름(LAN 시연용).
+    ///
+    /// 화면 상태(동시에 하나만 표시, 게임 중에는 아무것도 그리지 않음):
+    ///   Title(타이틀/닉네임) -> Join(IP:포트 입력) -> Connecting(접속 중) -> Waiting(대기방) -> InGame
+    ///
+    /// 상태는 이벤트 구독 없이 매 프레임 NetworkManager/MatchManager 에서 유도한다
+    /// (중복 구독·해제 누락 버그 원천 차단). 전환 감지로 끊김 사유 메시지만 채운다.
+    ///
+    /// UI 는 "의도"만 ConnectionService(연결)와 LobbyManager(로비 RPC)에 전달한다.
+    /// 렌더링은 기존 프로젝트 관례(IMGUI + ImguiScale 1080p 가상 픽셀)를 따른다
+    /// (다른 OnGUI 패널과 동일한 해상도 대응. 정식 UI 는 추후 uGUI 프리팹 교체 대상).
+    /// 씬 배치: 전용 GameObject(예: "LobbyUI")에 컴포넌트로 추가한다(에디터 Add Component).
+    /// </summary>
+    [DisallowMultipleComponent]
+    public class LobbyUI : MonoBehaviour
+    {
+        private enum View { Title, Join, Connecting, Waiting, InGame }
+        private enum NetState { Offline, Busy, Connecting, Online }
+
+        private const string PREF_NICK = "lobby_nickname";
+        private const int NAME_MAX = 12;
+
+        [Header("접속")]
+        [Tooltip("\"연결 중\" 상태의 무한 대기 방지 타임아웃(초).")]
+        [SerializeField] private float _connectTimeout = 10f;
+
+        private View _view = View.Title;
+        private NetState _prevNet = NetState.Offline;
+
+        private string _nickname;
+        private string _joinIp = "192.168.";
+        private string _joinPortText = "7777";
+        private string _message = "";   // 상태/오류 안내(화면 하단)
+        private float _connectStart;
+        private bool _timedOut;         // 타임아웃으로 인한 종료였는지(메시지 구분용)
+        private bool _localLeave;       // 내가 나가기/취소를 눌렀는지(메시지 구분용)
+        private bool _nameSent;         // 접속 후 닉네임 RPC 1회 전송 플래그
+
+        // IMGUI 스타일(1080p 가상 픽셀 기준, OnGUI 안에서 1회 생성)
+        private GUIStyle _stTitle, _stH2, _stLabel, _stSmall, _stBtn, _stBtnBig, _stInput, _stRow;
+
+        private void Awake()
+        {
+            _nickname = PlayerPrefs.GetString(PREF_NICK, "플레이어");
+        }
+
+        private void Start()
+        {
+            // 기본 포트는 ConnectionService 인스펙터 설정을 따른다(모든 Awake 이후라 안전).
+            var cs = ConnectionService.Instance;
+            if (cs != null) _joinPortText = cs.DefaultPort.ToString();
+        }
+
+        // ============================ 상태 머신 ============================
+        private static NetState DeriveNet()
+        {
+            var nm = NetworkManager.Singleton;
+            if (nm == null) return NetState.Offline;
+            if (nm.ShutdownInProgress) return NetState.Busy;
+            if (nm.IsServer) return NetState.Online;                               // 호스트/서버
+            if (nm.IsClient) return nm.IsConnectedClient ? NetState.Online : NetState.Connecting;
+            return NetState.Offline;
+        }
+
+        private void Update()
+        {
+            NetState net = DeriveNet();
+            if (net != _prevNet)
+            {
+                HandleTransition(_prevNet, net);
+                _prevNet = net;
+            }
+
+            switch (net)
+            {
+                case NetState.Offline:
+                case NetState.Busy:
+                    // 오프라인이 된 화면 정리(메시지는 HandleTransition 이 채움).
+                    if (_view == View.Connecting || _view == View.Waiting || _view == View.InGame)
+                        _view = View.Title;
+                    break;
+
+                case NetState.Connecting:
+                    _view = View.Connecting;
+                    if (!_timedOut && Time.unscaledTime - _connectStart > _connectTimeout)
+                    {
+                        _timedOut = true;
+                        NetworkManager.Singleton.Shutdown(); // 전환 감지가 타임아웃 메시지를 채운다
+                    }
+                    break;
+
+                case NetState.Online:
+                {
+                    // 접속 직후 닉네임 1회 보고(호스트 포함. LobbyManager 스폰 대기).
+                    var lm = LobbyManager.Instance;
+                    if (!_nameSent && lm != null && lm.IsSpawned)
+                    {
+                        lm.SetPlayerNameServerRpc(new FixedString64Bytes(SanitizeName(_nickname)));
+                        _nameSent = true;
+                    }
+                    var mm = MatchManager.Instance;
+                    bool inLobby = mm == null || !mm.IsSpawned || mm.CurrentPhase == MatchPhase.Lobby;
+                    _view = inLobby ? View.Waiting : View.InGame;
+                    break;
+                }
+            }
+
+            // 게임 화면 밖에서는 커서를 항상 풀어준다(플레이 중 커서는 PlayerController 정책).
+            if (_view != View.InGame)
+            {
+                Cursor.lockState = CursorLockMode.None;
+                Cursor.visible = true;
+            }
+        }
+
+        // 연결 상태 전환 시 사용자 안내 메시지 결정. 확인 가능한 정보(DisconnectReason)까지만
+        // 정확히 표시하고, 알 수 없는 원인을 단정하지 않는다.
+        private void HandleTransition(NetState prev, NetState now)
+        {
+            var nm = NetworkManager.Singleton;
+            string reason = nm != null ? nm.DisconnectReason : null;
+
+            // 접속 시작 시각 보정: LobbyUI 밖(디버그 패널 등)에서 StartClient 된 경우에도
+            // 타임아웃 기준점이 "지금"이 되도록 전환 시점에 갱신한다.
+            if (now == NetState.Connecting) _connectStart = Time.unscaledTime;
+
+            if (prev == NetState.Connecting && (now == NetState.Offline || now == NetState.Busy))
+            {
+                if (_timedOut)                          _message = "연결 시간이 초과되었습니다. 주소·포트·방화벽을 확인하세요.";
+                else if (_localLeave)                   _message = "접속을 취소했습니다.";
+                else if (!string.IsNullOrEmpty(reason)) _message = reason; // 서버 거절 사유(가득 참/진행 중 등)
+                else                                    _message = "서버에 연결할 수 없습니다. 주소·포트·방화벽을 확인하세요.";
+                _view = View.Join; // 입력값을 유지한 채 참가 화면으로 복귀
+            }
+            else if (prev == NetState.Online && (now == NetState.Offline || now == NetState.Busy))
+            {
+                if (_localLeave)                        _message = "방에서 나왔습니다.";
+                else if (!string.IsNullOrEmpty(reason)) _message = reason;
+                else                                    _message = "호스트와 연결이 끊어졌습니다.";
+                _view = View.Title;
+            }
+            else if (now == NetState.Online)
+            {
+                _message = "";
+            }
+
+            if (now == NetState.Offline || now == NetState.Busy) _nameSent = false;
+            _timedOut = false;
+            _localLeave = false;
+        }
+
+        // ============================ 버튼 동작 ============================
+        private void OnCreateRoom()
+        {
+            SaveNickname();
+            var cs = ConnectionService.Instance;
+            if (cs == null) { _message = "ConnectionService 가 씬에 없습니다(NetworkManager 오브젝트 확인)."; return; }
+            if (!cs.CreateRoom(cs.DefaultPort, out string err)) _message = err;
+            // 성공 시 Update 가 Online 전환을 감지해 대기방으로 넘어간다.
+        }
+
+        private void OnJoin()
+        {
+            SaveNickname();
+
+            string ip = (_joinIp ?? "").Trim();
+            if (ip.Equals("localhost", System.StringComparison.OrdinalIgnoreCase))
+                ip = "127.0.0.1"; // 같은 PC 개발 테스트 전용(다른 PC 접속에는 호스트 LAN IP 필요)
+            // IPAddress.TryParse 는 "192.168.0" 같은 축약 표기도 통과시키므로 4옥텟을 강제한다.
+            if (ip.Split('.').Length != 4 ||
+                !System.Net.IPAddress.TryParse(ip, out var parsed) ||
+                parsed.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork)
+            {
+                _message = "IPv4 주소 형식이 아닙니다. 예: 192.168.0.10";
+                return;
+            }
+            if (!ushort.TryParse((_joinPortText ?? "").Trim(), out ushort port) || port == 0)
+            {
+                _message = "포트는 1~65535 사이 숫자여야 합니다.";
+                return;
+            }
+
+            var cs = ConnectionService.Instance;
+            if (cs == null) { _message = "ConnectionService 가 씬에 없습니다(NetworkManager 오브젝트 확인)."; return; }
+            if (!cs.JoinRoom(ip, port, out string err)) { _message = err; return; }
+
+            _message = "";
+            _timedOut = false;
+            _localLeave = false;
+            _connectStart = Time.unscaledTime;
+            _view = View.Connecting;
+        }
+
+        private void OnLeave()
+        {
+            _localLeave = true;
+            var cs = ConnectionService.Instance;
+            if (cs != null) cs.Leave();
+        }
+
+        private static void QuitGame()
+        {
+#if UNITY_EDITOR
+            UnityEditor.EditorApplication.isPlaying = false;
+#else
+            Application.Quit();
+#endif
+        }
+
+        private void SaveNickname()
+        {
+            _nickname = SanitizeName(_nickname);
+            PlayerPrefs.SetString(PREF_NICK, _nickname);
+            PlayerPrefs.Save();
+        }
+
+        // 앞뒤 공백 제거 / 빈 문자열 기본 이름 / 길이 제한(서버도 같은 규칙으로 재검증).
+        private static string SanitizeName(string raw)
+        {
+            string s = (raw ?? "").Trim();
+            if (s.Length == 0) return "플레이어";
+            return s.Length > NAME_MAX ? s.Substring(0, NAME_MAX) : s;
+        }
+
+        // ============================ 렌더링 ============================
+        private void OnGUI()
+        {
+            if (_view == View.InGame) return;
+
+            ImguiScale.Apply(); // 이하 좌표는 1080p 기준 가상 픽셀
+            EnsureStyles();
+
+            float w = ImguiScale.VirtualWidth, h = ImguiScale.VirtualHeight;
+
+            // 배경 딤: 뒤 월드/디버그 패널과 시각적으로 분리.
+            Color old = GUI.color;
+            GUI.color = new Color(0f, 0f, 0f, _view == View.Waiting ? 0.55f : 0.8f);
+            GUI.DrawTexture(new Rect(0, 0, w, h), Texture2D.whiteTexture);
+            GUI.color = old;
+
+            switch (_view)
+            {
+                case View.Title:      DrawTitle(w, h); break;
+                case View.Join:       DrawJoin(w, h); break;
+                case View.Connecting: DrawConnecting(w, h); break;
+                case View.Waiting:    DrawWaiting(w, h); break;
+            }
+        }
+
+        private void EnsureStyles()
+        {
+            if (_stTitle != null) return;
+            _stTitle  = new GUIStyle(GUI.skin.label)     { fontSize = 52, alignment = TextAnchor.MiddleCenter, fontStyle = FontStyle.Bold };
+            _stH2     = new GUIStyle(GUI.skin.label)     { fontSize = 28, alignment = TextAnchor.MiddleLeft };
+            _stLabel  = new GUIStyle(GUI.skin.label)     { fontSize = 24 };
+            _stSmall  = new GUIStyle(GUI.skin.label)     { fontSize = 20, wordWrap = true };
+            _stBtn    = new GUIStyle(GUI.skin.button)    { fontSize = 24 };
+            _stBtnBig = new GUIStyle(GUI.skin.button)    { fontSize = 30, fontStyle = FontStyle.Bold };
+            _stInput  = new GUIStyle(GUI.skin.textField) { fontSize = 28, alignment = TextAnchor.MiddleLeft };
+            _stRow    = new GUIStyle(GUI.skin.label)     { fontSize = 26, richText = true };
+        }
+
+        private static Rect CenterRect(float w, float h, float pw, float ph) =>
+            new Rect((w - pw) * 0.5f, (h - ph) * 0.5f, pw, ph);
+
+        // ---------------- 타이틀 ----------------
+        private void DrawTitle(float w, float h)
+        {
+            GUILayout.BeginArea(CenterRect(w, h, 560, 600), GUI.skin.box);
+            GUILayout.Space(28);
+            GUILayout.Label("클라이밍 파티", _stTitle);
+            GUILayout.Label("LAN 멀티플레이 시연", new GUIStyle(_stSmall) { alignment = TextAnchor.MiddleCenter });
+            GUILayout.Space(34);
+
+            GUILayout.Label($"닉네임 (최대 {NAME_MAX}자)", _stLabel);
+            _nickname = GUILayout.TextField(_nickname ?? "", NAME_MAX, _stInput, GUILayout.Height(52));
+
+            GUILayout.Space(28);
+            bool busy = DeriveNet() == NetState.Busy;
+            GUI.enabled = !busy;
+            if (GUILayout.Button("방 만들기", _stBtnBig, GUILayout.Height(62))) OnCreateRoom();
+            GUILayout.Space(10);
+            if (GUILayout.Button("방 참가", _stBtnBig, GUILayout.Height(62))) { _message = ""; _view = View.Join; }
+            GUILayout.Space(10);
+            if (GUILayout.Button("종료", _stBtn, GUILayout.Height(48))) QuitGame();
+            GUI.enabled = true;
+
+            GUILayout.FlexibleSpace();
+            if (busy) GUILayout.Label("이전 세션 종료 처리 중...", _stSmall);
+            if (!string.IsNullOrEmpty(_message)) GUILayout.Label(_message, _stSmall);
+            GUILayout.Space(14);
+            GUILayout.EndArea();
+        }
+
+        // ---------------- 방 참가 ----------------
+        private void DrawJoin(float w, float h)
+        {
+            GUILayout.BeginArea(CenterRect(w, h, 560, 520), GUI.skin.box);
+            GUILayout.Space(20);
+            GUILayout.Label("방 참가", _stTitle);
+            GUILayout.Space(20);
+
+            GUILayout.Label("Host IP (호스트 화면에 표시된 접속 주소)", _stLabel);
+            _joinIp = GUILayout.TextField(_joinIp ?? "", 64, _stInput, GUILayout.Height(52));
+
+            GUILayout.Space(10);
+            GUILayout.Label("Port", _stLabel);
+            _joinPortText = GUILayout.TextField(_joinPortText ?? "", 6, _stInput, GUILayout.Height(52));
+
+            GUILayout.Space(24);
+            if (GUILayout.Button("참가", _stBtnBig, GUILayout.Height(62))) OnJoin();
+            GUILayout.Space(10);
+            if (GUILayout.Button("뒤로", _stBtn, GUILayout.Height(48))) { _message = ""; _view = View.Title; }
+
+            GUILayout.FlexibleSpace();
+            if (!string.IsNullOrEmpty(_message)) GUILayout.Label(_message, _stSmall);
+            GUILayout.Space(14);
+            GUILayout.EndArea();
+        }
+
+        // ---------------- 접속 중 ----------------
+        private void DrawConnecting(float w, float h)
+        {
+            GUILayout.BeginArea(CenterRect(w, h, 560, 300), GUI.skin.box);
+            GUILayout.Space(30);
+            int sec = Mathf.FloorToInt(Time.unscaledTime - _connectStart);
+            GUILayout.Label("서버에 연결하는 중…", _stTitle);
+            GUILayout.Label($"{(ConnectionService.Instance != null ? ConnectionService.Instance.JoinTarget : "")}  ({sec}초)",
+                            new GUIStyle(_stLabel) { alignment = TextAnchor.MiddleCenter });
+            GUILayout.FlexibleSpace();
+            if (GUILayout.Button("취소", _stBtn, GUILayout.Height(48)))
+            {
+                _localLeave = true;
+                var nm = NetworkManager.Singleton;
+                if (nm != null) nm.Shutdown();
+            }
+            GUILayout.Space(16);
+            GUILayout.EndArea();
+        }
+
+        // ---------------- 대기방 ----------------
+        private void DrawWaiting(float w, float h)
+        {
+            var nm = NetworkManager.Singleton;
+            var lm = LobbyManager.Instance;
+            var cs = ConnectionService.Instance;
+            bool isServer = nm != null && nm.IsServer;
+
+            GUILayout.BeginArea(CenterRect(w, h, 820, 760), GUI.skin.box);
+            GUILayout.Space(16);
+            GUILayout.Label("대기방", _stTitle);
+            GUILayout.Space(10);
+
+            // ---- 접속 주소(호스트: LAN IP + 실제 포트 / 클라: 접속한 대상) ----
+            string addr = isServer ? (cs != null ? cs.HostFullAddress : "?")
+                                   : (cs != null ? cs.JoinTarget : "?");
+            GUILayout.BeginHorizontal();
+            GUILayout.Label($"접속 주소  <b>{addr}</b>", _stRow);
+            GUILayout.FlexibleSpace();
+            if (GUILayout.Button("주소 복사", _stBtn, GUILayout.Width(140), GUILayout.Height(40)))
+            {
+                GUIUtility.systemCopyBuffer = addr;
+                _message = "접속 주소를 복사했습니다.";
+            }
+            GUILayout.EndHorizontal();
+
+            if (isServer && cs != null)
+            {
+                if (cs.PortFallbackUsed)
+                    GUILayout.Label($"기본 포트({cs.DefaultPort})가 사용 중이라 {cs.ActivePort} 포트로 열렸습니다. 참가자는 이 포트를 입력해야 합니다.", _stSmall);
+                if (string.IsNullOrEmpty(cs.PrimaryLanIp))
+                    GUILayout.Label("LAN IPv4 주소를 찾지 못했습니다. 호스트 PC 에서 ipconfig 로 IPv4 주소를 확인해 참가자에게 알려주세요.", _stSmall);
+                else if (cs.LanIpCandidates.Count > 1)
+                    GUILayout.Label("주소가 여러 개 감지됨(VPN/가상 어댑터 가능): " + string.Join(", ", cs.LanIpCandidates), _stSmall);
+                GUILayout.Label("같은 네트워크(공유기)에 연결된 참가자에게 위 접속 주소를 알려주세요.", _stSmall);
+            }
+
+            GUILayout.Space(12);
+
+            // ---- 참가자 목록 ----
+            int count = 0, min = 2;
+            bool allReady = false, meHost = false, meReady = false;
+            if (lm != null && lm.IsSpawned && nm != null)
+            {
+                var list = lm.Players;
+                count = list.Count;
+                min = lm.MinPlayers;
+                allReady = count > 0;
+
+                GUILayout.Label($"인원  {count}/{lm.MaxPlayers}", _stH2);
+                GUILayout.Space(4);
+
+                for (int i = 0; i < count; i++)
+                {
+                    var p = list[i];
+                    if (!p.Ready) allReady = false;
+                    bool isMe = p.ClientId == nm.LocalClientId;
+                    if (isMe) { meHost = p.IsHost; meReady = p.Ready; }
+
+                    GUILayout.BeginHorizontal(GUILayout.Height(44));
+                    Color oc = GUI.color;
+                    GUI.color = PlayerPalette.ColorFor(p.ClientId);
+                    GUILayout.Label("■", _stRow, GUILayout.Width(40));
+                    GUI.color = oc;
+                    string label = (p.IsHost ? "[방장] " : "") + (isMe ? $"<b>{p.Name}</b> (나)" : p.Name.ToString());
+                    GUILayout.Label(label, _stRow);
+                    GUILayout.FlexibleSpace();
+                    GUILayout.Label(p.Ready ? "<b>준비 완료</b>" : "준비 중", _stRow, GUILayout.Width(160));
+                    GUILayout.EndHorizontal();
+                }
+            }
+            else
+            {
+                GUILayout.Label("동기화 중...", _stLabel);
+            }
+
+            GUILayout.FlexibleSpace();
+
+            // ---- 하단 버튼 ----
+            GUILayout.BeginHorizontal();
+            if (lm != null && lm.IsSpawned)
+            {
+                if (GUILayout.Button(meReady ? "준비 취소" : "준비하기", _stBtnBig, GUILayout.Height(58)))
+                    lm.SetReadyServerRpc(!meReady);
+            }
+            if (GUILayout.Button("방 나가기", _stBtn, GUILayout.Width(190), GUILayout.Height(58)))
+                OnLeave();
+            GUILayout.EndHorizontal();
+
+            // 호스트 전용: 게임 시작(조건 미충족 시 비활성 + 사유 안내. 서버도 RPC 에서 재검증).
+            if (meHost && lm != null && lm.IsSpawned)
+            {
+                GUILayout.Space(8);
+                bool can = count >= min && allReady;
+                GUI.enabled = can;
+                if (GUILayout.Button("게임 시작", _stBtnBig, GUILayout.Height(62)))
+                    lm.StartGameServerRpc();
+                GUI.enabled = true;
+                if (!can)
+                    GUILayout.Label(count < min ? $"시작하려면 최소 {min}명이 필요합니다."
+                                                : "모든 참가자가 준비를 완료해야 시작할 수 있습니다.", _stSmall);
+            }
+
+            if (!string.IsNullOrEmpty(_message)) GUILayout.Label(_message, _stSmall);
+            GUILayout.Space(12);
+            GUILayout.EndArea();
+        }
+    }
+}

@@ -1,5 +1,6 @@
 // GameHUD.cs
-// 코드로 전부 생성하는 표시 전용 HUD (프리팹/씬 배선 없음).
+// 표시 전용 HUD. 씬 배치: 전용 GameObject 에 컴포넌트로 추가한다(에디터 Add Component).
+// UI 요소(캔버스/텍스트)는 런타임에 코드로 생성한다 — 추후 uGUI 프리팹 교체 대상.
 // Unity 6000.5.3f1 / URP / com.unity.ugui 2.5.0 (레거시 UnityEngine.UI) / NGO 2.13.0.
 // TextMeshPro 미사용, 신규 Input System 전용(구 UnityEngine.Input 사용 금지 → 이 파일은 키 입력 없음).
 // 호스트와 순수 클라이언트 모두에서 안전하게 동작해야 함(서버 전용 API 접근 금지).
@@ -74,20 +75,6 @@ namespace RouletteParty.UI
             (a, b) => a.Score != b.Score ? b.Score.CompareTo(a.Score) : a.Id.CompareTo(b.Id);
         private static readonly System.Comparison<RoundResult> _byRankAsc =
             (a, b) => a.Rank.CompareTo(b.Rank);
-
-        // ===================================================================
-        // 자동 부트스트랩: 씬에 GameHUD 가 없으면 플레이 시작 시 자동 생성한다.
-        // → 에디터에서 오브젝트를 배치할 필요가 없다. 수동 배치해 두면 이 가드가 중복을 막는다.
-        //   끄고 싶으면 이 메서드(또는 [RuntimeInitializeOnLoadMethod] 특성)를 제거하면 된다.
-        // ===================================================================
-        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
-        private static void AutoBootstrap()
-        {
-            if (FindAnyObjectByType<GameHUD>() != null) return; // 이미 있으면(수동 배치 포함) 생성 안 함
-            var go = new GameObject("GameHUD (auto)");
-            go.AddComponent<GameHUD>();
-            DontDestroyOnLoad(go);
-        }
 
         // ===================================================================
         // 수명주기
@@ -278,6 +265,9 @@ namespace RouletteParty.UI
 
             var m = MatchManager.Instance;
             if (m == null || !m.IsSpawned) { SetIdle(cam); return; }
+
+            // 로비(대기방) 동안 HUD 는 전부 숨긴다(화면은 LobbyUI 대기방이 사용, 겹침 방지).
+            if (m.CurrentPhase == MatchPhase.Lobby) { SetIdle(cam); return; }
 
             // --- 플레이어 오브젝트 클라이언트 안전 열거 ---
             // NGO 2.13: SpawnManager.SpawnedObjectsList 는 클라이언트에서도 유효.

@@ -321,6 +321,50 @@ MonoBehaviour:
     m_VarianceClampScale: 0.9
     m_ContrastAdaptiveSharpening: 0
   m_Version: 2
+--- !u!1 &735046658
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 735046660}
+  - component: {fileID: 735046659}
+  m_Layer: 0
+  m_Name: SettingsManager
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &735046659
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 735046658}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 96f78d615765b2246b1553590dcb48f9, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::RouletteParty.Core.SettingsManager
+--- !u!4 &735046660
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 735046658}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: -13.52308, y: 0.21133, z: 17.0353}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &890971248
 GameObject:
   m_ObjectHideFlags: 0
@@ -495,6 +539,50 @@ MonoBehaviour:
   m_ShadowLayerMask: 1
   m_RenderingLayers: 1
   m_ShadowRenderingLayers: 1
+--- !u!1 &1145635440
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1145635442}
+  - component: {fileID: 1145635441}
+  m_Layer: 0
+  m_Name: GameHUD
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &1145635441
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1145635440}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: b3cedebd288d23ff1668ba9c4c84457c, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::RouletteParty.UI.GameHUD
+--- !u!4 &1145635442
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1145635440}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: -13.52308, y: 0.21133, z: 17.0353}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &1533081085
 GameObject:
   m_ObjectHideFlags: 0
@@ -507,6 +595,7 @@ GameObject:
   - component: {fileID: 1533081088}
   - component: {fileID: 1533081087}
   - component: {fileID: 1533081086}
+  - component: {fileID: 1533081090}
   m_Layer: 0
   m_Name: NetworkManager
   m_TagString: Untagged
@@ -599,6 +688,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 409fee7aedfe4ac4b885b8f3910c455a, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::RouletteParty.Net.NetworkBootstrap
+  _showDebugGui: 0
   _ipAddress: 127.0.0.1
   _port: 7777
 --- !u!4 &1533081089
@@ -616,6 +706,19 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &1533081090
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1533081085}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 23ff2782bd4e18541a8395871500e912, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::RouletteParty.Net.ConnectionService
+  _defaultPort: 7777
 --- !u!1 &1809773975
 GameObject:
   m_ObjectHideFlags: 0
@@ -627,6 +730,7 @@ GameObject:
   - component: {fileID: 1809773977}
   - component: {fileID: 1809773976}
   - component: {fileID: 1809773978}
+  - component: {fileID: 1809773979}
   m_Layer: 0
   m_Name: MatchManager
   m_TagString: Untagged
@@ -705,17 +809,103 @@ MonoBehaviour:
   _fallDamagePerMeter: 1.5
   _visibleAllowance: 030000000200000001000000
   _invisibleAllowance: 010000000200000003000000
-  _minSpacing: 0.8
+  _structureGap: 0.02
   _wallPrefab: {fileID: 3080545699982424362, guid: 4bd61b8f14406d84fadc0b2b5a9c2cc8, type: 3}
   _cylinderPrefab: {fileID: 5695219427646287698, guid: 82d7bcb6067fb11478f9ddf0903157bd, type: 3}
   _invisiblePrefab: {fileID: 463762144606901678, guid: b23093dc222ff5d4c97e675ccd60e863, type: 3}
-  _heightScoreMax: 700
-  _rankBonus: 2c010000c800000064000000
+  _scoring:
+    heightScoreMax: 700
+    heightCurve:
+      serializedVersion: 2
+      m_Curve:
+      - serializedVersion: 3
+        time: 0
+        value: 0
+        inSlope: 0
+        outSlope: 1
+        tangentMode: 0
+        weightedMode: 0
+        inWeight: 0
+        outWeight: 0
+      - serializedVersion: 3
+        time: 1
+        value: 1
+        inSlope: 1
+        outSlope: 0
+        tangentMode: 0
+        weightedMode: 0
+        inWeight: 0
+        outWeight: 0
+      m_PreInfinity: 2
+      m_PostInfinity: 2
+      m_RotationOrder: 4
+    rankBonus: 2c010000c800000064000000
   MapSeed:
     UpdateTraits:
       MinSecondsBetweenUpdates: 0
       MaxSecondsBetweenUpdates: 0
     m_InternalValue: 0
+--- !u!114 &1809773979
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1809773975}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 1dc0e6afd5769504f9f5a9ce0bddd2cb, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::RouletteParty.Match.LobbyManager
+  ShowTopMostFoldoutHeaderGroup: 1
+  _requireManualStart: 1
+  _minPlayers: 2
+  _maxPlayers: 4
+--- !u!1 &1923310197
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1923310199}
+  - component: {fileID: 1923310198}
+  m_Layer: 0
+  m_Name: LobbyUI
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &1923310198
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1923310197}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 7b17f759f7968534384de06fb54613a7, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::RouletteParty.UI.LobbyUI
+  _connectTimeout: 10
+--- !u!4 &1923310199
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1923310197}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: -13.52308, y: 0.21133, z: 17.0353}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &2138073038
 GameObject:
   m_ObjectHideFlags: 0
@@ -782,3 +972,6 @@ SceneRoots:
   - {fileID: 2138073040}
   - {fileID: 890971250}
   - {fileID: 69890712}
+  - {fileID: 1923310199}
+  - {fileID: 1145635442}
+  - {fileID: 735046660}
