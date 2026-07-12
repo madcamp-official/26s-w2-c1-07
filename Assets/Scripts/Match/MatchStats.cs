@@ -15,7 +15,7 @@ namespace RouletteParty.Match
         public int   Round;              // 이 통계가 속한 라운드(1..). 0 = 아직 없음
         public ulong BiggestFallVictim;  // 최대 낙하 피해자
         public float BiggestFallHeight;  // 그 낙하 높이(m)
-        public ulong BestBaiter;         // 낚시왕: 자기 투명 구조물로 타인의 낙하 피해를 가장 많이 유발한 설치자
+        public ulong BestBaiter;         // 낚시왕: 자기 투명 구조물로 낙하 피해를 가장 많이 유발한 설치자(셀프 낚시 포함)
         public int   BestBaiterCount;
         public ulong MostBaited;         // 낚임왕: 투명 구조물에 가장 많이 당한 피해자
         public int   MostBaitedCount;
@@ -75,7 +75,7 @@ namespace RouletteParty.Match
     ///
     /// "낚시" 판정 휴리스틱: 플레이어가 투명 구조물에 접촉(Reveal 보고)한 뒤 BAIT_WINDOW 초 안에
     /// 낙하 피해를 입으면, 그 낙하를 해당 구조물 설치자의 낚시 1회로 귀속한다(접촉 1회당 최대 1회).
-    /// 자기 구조물에 자기가 닿은 경우는 집계하지 않는다.
+    /// 자기 함정에 자기가 당한 경우도 낚시로 집계한다(셀프 낚시).
     /// </summary>
     public class MatchStatsTracker
     {
@@ -103,10 +103,9 @@ namespace RouletteParty.Match
             _deaths = 0;
         }
 
-        /// <summary>투명 구조물 접촉 보고(RevealStructureServerRpc) 시 호출.</summary>
+        /// <summary>투명 구조물 접촉 보고(RevealStructureServerRpc) 시 호출. 자기 함정도 포함.</summary>
         public void RecordReveal(ulong victim, ulong structureOwner, double serverTime)
         {
-            if (victim == structureOwner) return; // 자기 함정 접촉은 낚시가 아님
             _lastTouch[victim] = new TouchMark { Owner = structureOwner, Time = serverTime };
         }
 

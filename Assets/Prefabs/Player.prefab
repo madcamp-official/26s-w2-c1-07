@@ -159,8 +159,8 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::RouletteParty.Net.PlayerController
   ShowTopMostFoldoutHeaderGroup: 1
   moveSpeed: 6
-  jumpHeight: 1
-  gravity: -20
+  jumpHeight: 2
+  gravity: -15
   turnSpeed: 12
   fallReportMin: 3
   camHeight: 2.4
@@ -175,7 +175,7 @@ MonoBehaviour:
   useAimView: 1
   mouseSensitivity: 0.12
   invertY: 0
-  aimMinPitch: -35
+  aimMinPitch: -70
   aimMaxPitch: 70
   aimDistance: 4.5
   aimShoulder: 0.7

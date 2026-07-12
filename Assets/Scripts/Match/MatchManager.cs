@@ -67,8 +67,8 @@ namespace RouletteParty.Match
         [SerializeField] private int[] _visibleAllowance = { 3, 2, 1 };
         [Tooltip("라운드별 보이지 않는 구조물 지급 개수(인덱스 0 = 라운드 1). 이월 없음.")]
         [SerializeField] private int[] _invisibleAllowance = { 1, 2, 3 };
-        [Tooltip("구조물 간 최소 간격(겹침 방지, 설치 검증).")]
-        [SerializeField] private float _minSpacing = 0.8f;
+        [Tooltip("플레이어 설치 구조물끼리 요구되는 표면 간 최소 틈(m). AABB 겹침 검사에 사용. 0.02 = 사실상 '겹침만 금지'(면 맞대기 허용).")]
+        [SerializeField] private float _structureGap = 0.02f;
         [Tooltip("구조물 프리팹(NetworkObject + Structure). NetworkPrefabs 리스트 등록 필수.")]
         [SerializeField] private GameObject _wallPrefab;
         [SerializeField] private GameObject _cylinderPrefab;
@@ -76,10 +76,8 @@ namespace RouletteParty.Match
         [SerializeField] private GameObject _invisiblePrefab;
 
         [Header("점수")]
-        [Tooltip("높이 점수 만점(종료 시점 높이 / mapHeight x 이 값).")]
-        [SerializeField] private float _heightScoreMax = 700f;
-        [Tooltip("종료 높이 순위 보너스(1위부터). 배열 밖 순위는 0.")]
-        [SerializeField] private int[] _rankBonus = { 300, 200, 100 };
+        [Tooltip("라운드 점수 설정(공식은 MatchScoring.RoundScore 한 곳에만 존재).")]
+        [SerializeField] private ScoringConfig _scoring = new ScoringConfig();
 
         // ============================ 복제 상태(서버 write) ============================
         private NetworkVariable<MatchPhase> _phase        = new NetworkVariable<MatchPhase>(MatchPhase.Lobby);
@@ -108,7 +106,8 @@ namespace RouletteParty.Match
         private readonly Dictionary<ulong, int> _prepInvisibleUsed = new Dictionary<ulong, int>();
 
         // 매치 동안 스폰된 구조물 기록(겹침 검증·매치 종료 일괄 정리용)
-        private struct StructRec { public NetworkObject No; public Vector3 Pos; }
+        // 매치 리셋 시 전체 despawn 용 기록(겹침 검사는 Structure.OverlapsAny 가 레지스트리로 수행).
+        private struct StructRec { public NetworkObject No; }
         private readonly List<StructRec> _structures = new List<StructRec>();
 
         // ============================ 클라 접근점 ============================
@@ -129,6 +128,8 @@ namespace RouletteParty.Match
         /// <summary>현재 라운드의 지급 개수(클라 UI 표시용).</summary>
         public int VisibleGrant   => GrantOf(_visibleAllowance, _round.Value);
         public int InvisibleGrant => GrantOf(_invisibleAllowance, _round.Value);
+        /// <summary>설치물 표면 간 최소 틈(AABB 겹침 검사). 클라 블루프린트 예비검증(PrepClientUI)이 서버와 같은 값을 쓴다.</summary>
+        public float StructureGap => _structureGap;
         private static int GrantOf(int[] arr, int round)
         {
             if (arr == null || arr.Length == 0) return 0;
@@ -302,16 +303,27 @@ namespace RouletteParty.Match
             _aliveCount.Value = _players.Count;
         }
 
-        // 바닥 스폰 슬롯: 인원수 기반 센터링(맵 폭 안으로 클램프).
+        // 스폰 슬롯: 지면의 플레이어 스폰 구역(ClimbMapGenerator.SpawnAreaCenter, 구조물 생성
+        // 범위 동쪽 바깥) 안에 z 축으로 줄지어 배치(인원수 기반 센터링, 구역 안으로 클램프).
         // 주의: 위->아래 Ground 레이캐스트로 스폰 높이를 잡으면 타워 구조물 "꼭대기"에 맞아
         // 정상 스폰(즉시 만점) 버그가 나므로, 바닥(y=0) 고정 높이로 스폰한다.
         private Vector3 SpawnSlot(int index, int total)
         {
-            // 스폰 여유 폭은 바닥(땅) 크기 기준(구조물 생성 영역인 MapWidth 와는 별개, 바닥이 더 넓다).
-            float halfX = (ClimbMapGenerator.Instance != null ? ClimbMapGenerator.Instance.FloorWidth : 24f) * 0.5f - 0.6f;
-            float x = (index - (Mathf.Max(1, total) - 1) * 0.5f) * spawnSpacingX;
-            x = Mathf.Clamp(x, -halfX, halfX);
-            return new Vector3(x, 1.2f, 0f);
+            var gen = ClimbMapGenerator.Instance;
+            if (gen == null) return new Vector3(0f, 1.2f, 0f);
+
+            Vector3 center = gen.SpawnAreaCenter;
+            float halfZ = gen.SpawnAreaDepth * 0.5f - 0.6f;
+            float z = (index - (Mathf.Max(1, total) - 1) * 0.5f) * spawnSpacingX;
+            z = Mathf.Clamp(z, -halfZ, halfZ);
+            return new Vector3(center.x, 1.2f, center.z + z);
+        }
+
+        // 발끝(캡슐 바닥) 높이. 높이 표시/채점의 공통 기준(PlayerController.FootY 위임).
+        private static float FootYOf(NetworkObject po)
+        {
+            var pc = po != null ? po.GetComponent<RouletteParty.Net.PlayerController>() : null;
+            return pc != null ? pc.FootY : (po != null ? po.transform.position.y : 0f);
         }
 
         // 비 PLAY 페이즈 안전망: 바닥 아래로 샌 플레이어 구조.
@@ -340,7 +352,7 @@ namespace RouletteParty.Match
                 var po = c.PlayerObject;
                 if (po == null) continue;
 
-                float y = po.transform.position.y;
+                float y = FootYOf(po); // 발끝 기준(HUD 표시·채점과 동일 기준)
                 if (y < -5f) TeleportOwner(c.ClientId, SpawnSlot(pr.SpawnIndex, _players.Count)); // 안전망
 
                 if (!pr.ReachedTop && y >= top)
@@ -376,7 +388,7 @@ namespace RouletteParty.Match
             {
                 pr.Alive = false;
                 var po = NetworkManager.ConnectedClients.TryGetValue(clientId, out var cl) ? cl.PlayerObject : null;
-                pr.DeathHeight = po != null ? Mathf.Max(0f, po.transform.position.y) : 0f;
+                pr.DeathHeight = Mathf.Max(0f, FootYOf(po)); // 발끝 기준
                 SetDead(clientId, true);
                 _aliveCount.Value = Mathf.Max(0, _aliveCount.Value - 1);
             }
@@ -415,17 +427,21 @@ namespace RouletteParty.Match
             var gen = ClimbMapGenerator.Instance;
             if (gen == null || !gen.InsideVolume(pos, 0.1f)) return;
 
-            // 겹침 검사는 "플레이어 설치 구조물끼리"만 한다(간격 _minSpacing).
-            // 랜덤 타워는 슬라이스당 2개씩 매우 밀집해 있어 물리 겹침 검사를 하면 사실상
-            // 어디에도 설치할 수 없다. 타워 발판에 끼워/걸쳐 설치하는 것은 게임 규칙상 유효.
-            for (int i = 0; i < _structures.Count; i++)
-                if (Vector3.Distance(_structures[i].Pos, pos) < _minSpacing) return;
-
             GameObject prefab = PrefabFor(type);
             if (prefab == null) { Debug.LogWarning($"[Match] structure prefab for {type} not assigned."); return; }
 
+            // 프리팹 "바닥"이 조준점(pos)에 닿도록 피벗을 들어 올린 최종 위치.
+            // 클라 블루프린트(PrepClientUI)와 동일한 계산 -> 프리뷰 위치 = 실물 위치.
             GameObject go = Instantiate(prefab);
-            go.transform.SetPositionAndRotation(pos, Quaternion.Euler(0f, yawStep * 90f, 0f));
+            Vector3 finalPos = pos + Vector3.up * Structure.BottomOffset(go);
+            go.transform.SetPositionAndRotation(finalPos, Quaternion.Euler(0f, yawStep * 90f, 0f));
+
+            // 겹침 검사는 "플레이어 설치 구조물끼리"만, 실제 AABB 교차 기준(표면 틈 _structureGap).
+            // 최종 트랜스폼이 반영된 렌더 AABB 를 쓰므로 클라 블루프린트 예비검증과 결과가 같다.
+            // 랜덤 타워는 슬라이스당 2개씩 매우 밀집해 있어 물리 겹침 검사를 하면 사실상
+            // 어디에도 설치할 수 없다. 타워 발판에 끼워/걸쳐 설치하는 것은 게임 규칙상 유효.
+            if (Structure.OverlapsAny(Structure.RenderBounds(go), _structureGap)) { Destroy(go); return; }
+
             var no = go.GetComponent<NetworkObject>();
             no.Spawn(true);
 
@@ -434,11 +450,15 @@ namespace RouletteParty.Match
             var ob = go.GetComponent<Structure>();
             if (ob != null) ob.ServerInit(type, sender);
 
-            _structures.Add(new StructRec { No = no, Pos = pos });
+            _structures.Add(new StructRec { No = no });
             used[sender] = usedCount + 1;
         }
 
-        private GameObject PrefabFor(StructureType type)
+        /// <summary>
+        /// 종류별 구조물 프리팹. 서버 스폰과 클라 블루프린트(PrepClientUI 배치 프리뷰)가
+        /// 같은 프리팹을 쓰므로, 새 구조물 추가 = 프리팹 필드 + 이 switch 에 한 줄이면 끝.
+        /// </summary>
+        public GameObject PrefabFor(StructureType type)
         {
             switch (type)
             {
@@ -489,7 +509,7 @@ namespace RouletteParty.Match
                 else
                 {
                     var po = NetworkManager.ConnectedClients.TryGetValue(pr.ClientId, out var cl) ? cl.PlayerObject : null;
-                    y = po != null ? Mathf.Clamp(po.transform.position.y, 0f, top) : 0f;
+                    y = Mathf.Clamp(FootYOf(po), 0f, top); // 발끝 기준
                 }
                 rows.Add((pr.ClientId, y, pr.ReachedTop, pr.TopTime));
             }
@@ -505,9 +525,14 @@ namespace RouletteParty.Match
 
             for (int i = 0; i < rows.Count; i++)
             {
-                float heightScore = top <= 0f ? 0f : Mathf.Clamp01(rows[i].finalY / top) * _heightScoreMax;
-                int bonus = (_rankBonus != null && i < _rankBonus.Length) ? _rankBonus[i] : 0;
-                int totalScore = Mathf.RoundToInt(heightScore) + bonus;
+                var perf = new RoundPerformance
+                {
+                    NormalizedHeight = top <= 0f ? 0f : rows[i].finalY / top,
+                    Rank = i,
+                    ReachedTop = rows[i].topped,
+                    TopTime = rows[i].topTime,
+                };
+                int totalScore = MatchScoring.RoundScore(perf, _scoring);
 
                 _totalScore[rows[i].id] = (_totalScore.TryGetValue(rows[i].id, out int acc) ? acc : 0) + totalScore;
                 _results.Add(new RoundResult

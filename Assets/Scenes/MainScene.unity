@@ -153,7 +153,11 @@ MonoBehaviour:
   mapHeight: 50
   floorWidth: 24
   floorDepth: 24
-  sliceCount: 50
+  spawnAreaGap: 1
+  spawnAreaWidth: 6
+  spawnAreaDepth: 6
+  spawnAreaColor: {r: 0.25, g: 0.85, b: 0.55, a: 1}
+  sliceCount: 30
   structuresPerSlice: 2
   minStructureSpacing: 0.4
   maxPlacementAttempts: 30

@@ -65,6 +65,10 @@ public class PlayerController : NetworkBehaviour
     [Tooltip("조준 레이(설치/확장용) 최대 거리.")]
     public float aimRayDistance = 500f;
 
+    [Header("페이즈 전환 시선 초기화")]
+    [Tooltip("페이즈가 바뀔 때 시선을 '맵 중심 방향 + 이 피치'로 초기화한다(음수 = 위쪽). 이전 페이즈의 시선을 이어받지 않는다.")]
+    public float lookResetPitch = 0f;
+
     [Header("준비 페이즈 비행 카메라")]
     [Tooltip("PREP 자유 비행 수평(x/z) 이동 속도. WASD 는 시선 상하와 무관하게 수평으로만 움직인다.")]
     public float flySpeed = 8f;
@@ -72,6 +76,18 @@ public class PlayerController : NetworkBehaviour
     public float flyVerticalSpeed = 6f;
 
     // ---- 상태 접근점 ----
+    /// <summary>발끝(캡슐 바닥) 월드 y. 높이 표시(HUD)·채점(MatchManager)의 공통 기준.
+    /// CharacterController 치수는 프리팹 공용 값이라 서버/모든 클라에서 동일하게 계산된다.</summary>
+    public float FootY
+    {
+        get
+        {
+            if (_cc == null) _cc = GetComponent<CharacterController>();
+            if (_cc == null) return transform.position.y;
+            return transform.position.y + _cc.center.y - _cc.height * 0.5f;
+        }
+    }
+
     public bool IsAiming { get; private set; }
     public Ray AimRay { get; private set; }
     public Vector3 AimPoint { get; private set; }
@@ -90,6 +106,7 @@ public class PlayerController : NetworkBehaviour
     float _yaw;
     float _pitch;
     bool _cursorFreeOverride;
+    MatchPhase _lastPhase = (MatchPhase)byte.MaxValue; // 페이즈 전환 감지(시선 초기화용)
 
     // 낙하 추적(소유자)
     float _airApexY;
@@ -163,6 +180,14 @@ public class PlayerController : NetworkBehaviour
         if (!IsSpawned || !IsOwner) return;
 
         MatchPhase phase = Phase();
+
+        // 페이즈 전환 시 시선 초기화: 이전 페이즈의 시선 방향을 이어받지 않는다(고정 시작 시선).
+        if (phase != _lastPhase)
+        {
+            _lastPhase = phase;
+            ResetLook();
+        }
+
         bool aim = useAimView;
         HandleCursor(aim);
         IsAiming = aim;
@@ -222,6 +247,16 @@ public class PlayerController : NetworkBehaviour
     }
 
     // ============================ 입력: 마우스룩 ============================
+    // 시선 초기화: 맵(타워) 중심을 바라보는 수평 방향 + 고정 피치. 페이즈 전환/텔레포트 시 호출.
+    void ResetLook()
+    {
+        Vector3 toCenter = -transform.position;
+        toCenter.y = 0f;
+        if (toCenter.sqrMagnitude > 0.01f)
+            _yaw = Quaternion.LookRotation(toCenter, Vector3.up).eulerAngles.y;
+        _pitch = Mathf.Clamp(lookResetPitch, aimMinPitch, aimMaxPitch);
+    }
+
     void HandleMouseLook()
     {
         if (_cursorFreeOverride) return;
@@ -293,7 +328,12 @@ public class PlayerController : NetworkBehaviour
 
         Vector3 velocity = dir * moveSpeed;
         velocity.y = _verticalVelocity;
-        _cc.Move(velocity * Time.deltaTime);
+        CollisionFlags flags = _cc.Move(velocity * Time.deltaTime);
+
+        // 천장 충돌 시 상승 속도 즉시 소멸: CharacterController 는 막혀도 속도를 유지하므로
+        // 이걸 안 죽이면 낮은 천장 밑에서 상승 관성이 다할 때까지 떠 있게 된다.
+        if ((flags & CollisionFlags.Above) != 0 && _verticalVelocity > 0f)
+            _verticalVelocity = 0f;
     }
 
     // ============================ 낙하 추적(소유자) -> 서버 보고 ============================
@@ -530,6 +570,7 @@ public class PlayerController : NetworkBehaviour
         _verticalVelocity = 0f;
         _airApexY = spawn.y;   // 텔레포트를 낙하로 오인하지 않게 리셋
         _wasAirborne = false;
+        ResetLook();           // 새 위치 기준으로 시선도 초기화(페이즈 전환과 동일 규칙)
     }
 }
 }

@@ -33,6 +33,16 @@ public class ClimbMapGenerator : MonoBehaviour
     [SerializeField] private float floorWidth = 24f;
     [SerializeField] private float floorDepth = 24f;
 
+    [Header("플레이어 스폰 구역 — 구조물 생성 범위 동쪽(+X) 바깥의 색칠된 패드. MatchManager 가 이 안에 스폰시킨다.")]
+    [Tooltip("구조물 생성 범위 동쪽 끝과 스폰 구역 사이 간격(m).")]
+    [SerializeField] private float spawnAreaGap = 1f;
+    [Tooltip("스폰 구역 가로(X). 간격+크기가 지면 밖으로 나가지 않게 주의.")]
+    [SerializeField] private float spawnAreaWidth = 6f;
+    [Tooltip("스폰 구역 세로(Z).")]
+    [SerializeField] private float spawnAreaDepth = 6f;
+    [Tooltip("스폰 구역 바닥 표시 색(임시 지정).")]
+    [SerializeField] private Color spawnAreaColor = new Color(0.25f, 0.85f, 0.55f, 1f);
+
     [Header("랜덤 생성 규칙")]
     [Tooltip("높이 등분 수(x). 슬라이스 높이 = mapHeight / sliceCount.")]
     [SerializeField] private int sliceCount = 75;
@@ -56,6 +66,12 @@ public class ClimbMapGenerator : MonoBehaviour
     public float MapHeight => mapHeight;
     public float FloorWidth => floorWidth;
     public float FloorDepth => floorDepth;
+
+    /// <summary>스폰 구역 중심(지면 위 y=0). 구조물 생성 범위 동쪽 끝 + 간격 + 구역 절반.</summary>
+    public Vector3 SpawnAreaCenter =>
+        new Vector3(mapWidth * 0.5f + spawnAreaGap + spawnAreaWidth * 0.5f, 0f, 0f);
+    public float SpawnAreaWidth => spawnAreaWidth;
+    public float SpawnAreaDepth => spawnAreaDepth;
 
     int _builtSeed = int.MinValue;
     GameObject _staticRoot;     // 바닥/경계벽(시드 무관, 1회)
@@ -111,6 +127,21 @@ public class ClimbMapGenerator : MonoBehaviour
         floor.layer = ground;
         floor.isStatic = true;
         if (floorMaterial != null) floor.GetComponent<MeshRenderer>().sharedMaterial = floorMaterial;
+
+        // 플레이어 스폰 구역 패드: 바닥 위에 얇게 얹은 색칠 표시(윗면 y≈0.05, CC step 으로 자연 통과).
+        var pad = GameObject.CreatePrimitive(PrimitiveType.Cube);
+        pad.name = "SpawnAreaPad";
+        pad.transform.SetParent(_staticRoot.transform, false);
+        pad.transform.localScale = new Vector3(spawnAreaWidth, 0.1f, spawnAreaDepth);
+        pad.transform.position = SpawnAreaCenter + Vector3.up * 0.001f; // 바닥과 z-fighting 방지
+        pad.layer = ground;
+        pad.isStatic = true;
+        // 색: 바닥 머티리얼 복제 후 틴트(라이팅 일관). 없으면 항상 포함되는 Sprites/Default 폴백.
+        var padMat = floorMaterial != null
+            ? new Material(floorMaterial)
+            : new Material(Shader.Find("Sprites/Default"));
+        padMat.color = spawnAreaColor;
+        pad.GetComponent<MeshRenderer>().sharedMaterial = padMat;
 
         // 경계벽 4면: 콜라이더만(이탈 방지). 카메라 오클루전이 벽에 걸려 맵 안에 머물게 Ground 레이어.
         // 플레이어 이동 가능 범위 = 지면 크기(floorWidth/floorDepth) 기준. 구조물 생성 범위(mapWidth/mapDepth)와는 별개.

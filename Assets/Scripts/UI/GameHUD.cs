@@ -316,7 +316,7 @@ namespace RouletteParty.UI
                 if (_players[i].OwnerClientId != localId) continue;
                 var pc = _players[i].GetComponent<PlayerController>();
                 if (pc != null) { localAiming = pc.IsAiming; localDead = pc.Dead.Value; }
-                localY = _players[i].transform.position.y;
+                localY = pc != null ? pc.FootY : _players[i].transform.position.y; // 발끝 기준(채점과 동일)
                 break;
             }
 
