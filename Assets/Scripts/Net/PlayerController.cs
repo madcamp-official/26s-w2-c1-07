@@ -486,11 +486,15 @@ public class PlayerController : NetworkBehaviour
     Transform PickSpectateTarget()
     {
         var nm = NetworkManager.Singleton;
-        if (nm == null || nm.SpawnManager == null) return null;
+        // 셧다운 진행 중에는 SpawnManager 내부 목록이 해체되는 중이라 접근하면 NRE 가 난다.
+        if (nm == null || !nm.IsListening || nm.ShutdownInProgress || nm.SpawnManager == null) return null;
+
+        var spawned = nm.SpawnManager.SpawnedObjectsList;
+        if (spawned == null) return null;
 
         // 생존 중인 다른 플레이어 목록(관전 후보).
         var candidates = new System.Collections.Generic.List<Transform>();
-        foreach (NetworkObject no in nm.SpawnManager.SpawnedObjectsList)
+        foreach (NetworkObject no in spawned)
         {
             if (no == null || !no.IsPlayerObject) continue;
             if (no.OwnerClientId == OwnerClientId) continue;
