@@ -139,6 +139,7 @@
 | 카메라 (마우스룩 조준) | 전 페이즈 배그식 3인칭 오버숄더 마우스룩: 마우스=조준(화면 중앙 조준점), WASD 는 카메라 기준 이동, 몸은 카메라 방향. Ground 레이어 SphereCast 오클루전, 커서 잠금(Esc 토글). 후방추적 시점은 `useAimView=false` 로 보존. | 필수 |
 | UI (uGUI 코드 생성) | 프리팹 없는 코드 생성 HUD: 페이즈 배너·타이머·누적 점수판·현재 높이·탈락/관전 배너·하이라이트 카드·최종 결과·조준점·머리 위 이름표. PREP 은 구조물 종류/잔여 개수 패널. | 필수 |
 | 캐릭터 (스틱맨) | 휴머노이드 스틱맨 모델(PolyOne Free Stickman)을 Player 프리팹에 네스티드 프리팹으로 부착. 1D 블렌드트리(Speed: Idle 0 / Walk 2 / Run 6) + Airborne(Grounded) 전이, `PlayerAnimDriver` 가 transform 프레임 차분으로 속도를 추정해 원격 플레이어도 팔다리가 움직인다. `PlayerTint` 로 플레이어별 색 적용. | 필수(구현됨) |
+| 맵 장식 에셋 (가구) | Furniture Mega Pack 을 등반 맵("거대한 방" 테마)용으로 선별 도입: 테이블 8·의자 6·소파 5·침대 8·옷장 6·서랍장 6·쿠션 8·주방 20(냉장고·캐비닛 등)·욕조 7 = 프리팹 74종. 원본 1.7GB 를 노멀/메탈릭맵 제거 + 알베도 1K 축소로 40MB 로 경량화(스타일라이즈드 룩 기준 시각 손실 없음, URP/Lit). | 권장(도입됨) |
 | 아트·이펙트 | 이모트, 낙사 파티클 등(숏폼용 '웃긴 장면'). | 권장 |
 
 ### 7. 기술 스택 · 빌드 · Steam 출시
@@ -148,7 +149,7 @@
 | Unity 6 LTS + NGO | Unity 6 LTS(6000.x) + `com.unity.netcode.gameobjects`. 언어 C#. | 필수 |
 | Steamworks 연동 | Facepunch.Steamworks(App ID·로비·친구·업적) + Facepunch Transport. 초기엔 개발용 App ID 480(Spacewar)로 테스트. | 선택(출시 단계) |
 | 프로젝트 구조 | 단일 Unity 프로젝트. `Assets/Scripts/{Map, Match, Net, UI}` (네임스페이스 `RouletteParty.{Map, Match, Net, UI}` 로 통일). asmdef 어셈블리 분리는 규모 증가 시 도입. | 필수 |
-| 버전관리 | Git + **Git LFS**(대용량 에셋), Unity `.gitignore`, `.meta` 커밋 규칙. | 필수 |
+| 버전관리 | Git, Unity `.gitignore`, `.meta` 커밋 규칙. 대용량 에셋 팩은 LFS 대신 **선별 + 텍스처 축소 후 커밋**(가구 팩 1.7GB→40MB 사례). | 필수 |
 | 빌드 & 출시 | Windows 빌드 → Steamworks 파트너 depot 업로드. Steam Direct(앱 수수료 $100·30일 대기·심사), 상점 페이지·Coming Soon. | 필수 |
 | 전용 서버 빌드 | 헤드리스 리눅스 서버 빌드(KCLOUD/Multiplay), 대규모 확장 시. | 선택 |
 
@@ -169,7 +170,7 @@ NGO 호스트 권위 + Steam P2P/릴레이 기준 **MVP 동시 접속은 8~16명
 | 전송 | UnityTransport(현행) → Unity Relay(데모) → Facepunch/Steam(출시) | 단계적 전환, `ApplyConnectionData()` 한 곳만 교체 |
 | 물리·이동 | CharacterController + Unity Physics | 플랫포머 이동에 충분, 콜라이더 공유 |
 | 카메라·UI | 커스텀 마우스룩 카메라 + uGUI(코드 생성 HUD) | 조준 시점 요구사항 직접 구현·프리팹 없는 HUD |
-| 버전관리 | Git + Git LFS | 대용량 에셋·씬 관리 |
+| 버전관리 | Git (대용량 에셋은 선별·축소 후 커밋) | 무료 플랜 LFS 한도 회피, 클론만으로 실행 가능 유지 |
 | 배포 | Steamworks (Steam Direct) | 스팀 출시 |
 
 ---
