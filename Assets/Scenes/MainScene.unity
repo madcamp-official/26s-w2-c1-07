@@ -152,7 +152,7 @@ MonoBehaviour:
   islandThickness: 2
   islandPadding: 4
   islandMaterial: {fileID: 2100000, guid: 62f68848710908547ae7d49f275481cf, type: 2}
-  laneCount: 3
+  laneCount: 2
   laneSpacing: 8
   platformsPerLane: 14
   risePerMeter: 0.3
@@ -407,6 +407,10 @@ MonoBehaviour:
   _rayDistance: 500
   _okColor: {r: 0.3, g: 1, b: 0.4, a: 0.45}
   _badColor: {r: 1, g: 0.3, b: 0.3, a: 0.45}
+  _airDistanceMin: 2
+  _airDistanceMax: 30
+  _airDistanceStep: 1
+  _trapToastDuration: 2.5
 --- !u!4 &890971250
 Transform:
   m_ObjectHideFlags: 0
@@ -817,7 +821,7 @@ MonoBehaviour:
   _lethalLandFall: 7
   _visibleAllowance: 030000000200000001000000
   _invisibleAllowance: 010000000200000003000000
-  _structureGap: 0.02
+  _overlapTolerance: 0.05
   _wallPrefab: {fileID: 3080545699982424362, guid: 4bd61b8f14406d84fadc0b2b5a9c2cc8, type: 3}
   _cylinderPrefab: {fileID: 5695219427646287698, guid: 82d7bcb6067fb11478f9ddf0903157bd, type: 3}
   _invisiblePrefab: {fileID: 463762144606901678, guid: b23093dc222ff5d4c97e675ccd60e863, type: 3}
@@ -867,7 +871,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::RouletteParty.Match.LobbyManager
   ShowTopMostFoldoutHeaderGroup: 1
   _requireManualStart: 1
-  _minPlayers: 2
+  _minPlayers: 1
   _maxPlayers: 4
 --- !u!1 &1923310197
 GameObject:
