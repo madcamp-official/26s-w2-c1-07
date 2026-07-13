@@ -25,8 +25,9 @@ public class PlayerAnimDriver : MonoBehaviour
     [SerializeField] private float _speedSmoothing = 10f;
     [Tooltip("원격 접지 판정: 발끝에서 아래로 쏘는 레이 길이.")]
     [SerializeField] private float _groundRayLength = 0.4f;
-    [Tooltip("한 프레임 변위가 이 값(m) 이상이면 텔레포트로 간주하고 속도 계산에서 제외.")]
-    [SerializeField] private float _teleportThreshold = 3f;
+    [Tooltip("이 수평 속도(m/s)를 넘는 프레임 변위는 텔레포트로 간주하고 무시한다. " +
+             "게임 최고 이동속도(6)보다 충분히 크게: 프레임레이트와 무관하게 순간이동만 걸러진다.")]
+    [SerializeField] private float _maxPlausibleSpeed = 20f;
 
     static readonly int SpeedId    = Animator.StringToHash("Speed");
     static readonly int GroundedId = Animator.StringToHash("Grounded");
@@ -58,14 +59,10 @@ public class PlayerAnimDriver : MonoBehaviour
         // ---- 수평 속도(프레임 차분) ----
         Vector3 delta = transform.position - _lastPos;
         _lastPos = transform.position;
-        float raw;
-        if (delta.magnitude >= _teleportThreshold)
-            raw = 0f; // 텔레포트/스폰 배치: 이동 아님
-        else
-        {
-            delta.y = 0f;
-            raw = delta.magnitude / dt;
-        }
+        delta.y = 0f; // 낙하 속도는 로코모션과 무관(수직 제외)
+        float raw = delta.magnitude / dt;
+        if (raw > _maxPlausibleSpeed)
+            raw = 0f; // 실이동으로 불가능한 속도 = 텔레포트/스폰 배치 -> 이동 아님
         _speed = Mathf.Lerp(_speed, raw, 1f - Mathf.Exp(-_speedSmoothing * dt));
 
         // ---- 접지 ----
