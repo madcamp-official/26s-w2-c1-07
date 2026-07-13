@@ -104,6 +104,12 @@ public class ClimbMapGenerator : MonoBehaviour
     [Tooltip("경계벽을 눈에 보이게 렌더링할지(기본: 콜라이더만).")]
     [SerializeField] private bool showBoundaryWalls = false;
 
+    [Header("도착선")]
+    [Tooltip("정상 높이(y = MapHeight, 도달 판정과 동일 기준)에 반투명 도착 평면을 표시한다.")]
+    [SerializeField] private bool showFinishPlane = true;
+    [Tooltip("도착 평면 머티리얼(반투명 권장). 비우면 표시 생략.")]
+    [SerializeField] private Material finishMaterial;
+
     // ============================ 공개 API ============================
     /// <summary>정상 높이. 임시 점수 로직(높이 비례)의 만점 기준 — 점수 개편 예정.
     /// 맵 생성 전에는 설정 기반 추정치를 돌려준다(생성 후엔 실측: 가장 낮은 레인 정상).</summary>
@@ -257,6 +263,7 @@ public class ClimbMapGenerator : MonoBehaviour
         _placementBounds = WithPad(footprint, placementPadding, -0.5f, _topY + placementHeadroom);
         _movementBounds  = WithPad(footprint, movementPadding, island.min.y - 4f, _topY + movementHeadroom);
         BuildWalls(ground);
+        BuildFinishPlane(footprint);
         _built = true;
 
         Debug.Log($"[ClimbMap] seed={seed} 레인 {laneCount} x 발판 {platformsPerLane} = {made}개, 정상 y={_topY:0.0}");
@@ -377,6 +384,26 @@ public class ClimbMapGenerator : MonoBehaviour
         BuildWall("Wall_XNeg", new Vector3(b.min.x - t * 0.5f, cy, b.center.z), new Vector3(t, h, b.size.z + 2f * t), ground);
         BuildWall("Wall_ZPos", new Vector3(b.center.x, cy, b.max.z + t * 0.5f), new Vector3(b.size.x + 2f * t, h, t), ground);
         BuildWall("Wall_ZNeg", new Vector3(b.center.x, cy, b.min.z - t * 0.5f), new Vector3(b.size.x + 2f * t, h, t), ground);
+    }
+
+    // ============================ 도착선 (footprint 파생, 시드마다) ============================
+    // 정상 높이(_topY = 도달 판정 기준)에 맵 전체를 덮는 반투명 평면을 띄운다:
+    // "이 면을 넘으면 도착"이 판정과 1:1 로 일치하는 정직한 표시. 콜라이더 없음(시각 전용),
+    // Ground 레이어가 아니므로 카메라 오클루전에도 걸리지 않는다.
+    void BuildFinishPlane(Bounds footprint)
+    {
+        if (!showFinishPlane || finishMaterial == null) return;
+
+        var plane = GameObject.CreatePrimitive(PrimitiveType.Cube);
+        plane.name = "FinishPlane";
+        plane.transform.SetParent(_structureRoot.transform, false);
+        plane.transform.position = new Vector3(footprint.center.x, _topY, footprint.center.z);
+        plane.transform.localScale = new Vector3(footprint.size.x + 6f, 0.05f, footprint.size.z + 6f);
+        Destroy(plane.GetComponent<Collider>()); // 시각 전용 — 이동/설치에 간섭 금지
+        var mr = plane.GetComponent<MeshRenderer>();
+        mr.sharedMaterial = finishMaterial;
+        mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+        mr.receiveShadows = false;
     }
 
     void BuildWall(string name, Vector3 pos, Vector3 scale, int layer)

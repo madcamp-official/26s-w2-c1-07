@@ -31,8 +31,10 @@ public class PlayerController : NetworkBehaviour
 {
     [Header("이동")]
     public float moveSpeed = 6f;
-    [Tooltip("점프로 도달하는 dy 최댓값(명세: 1).")]
+    [Tooltip("점프로 도달하는 dy 최댓값(명세: 1). 스페이스를 끝까지 누르고 있으면 이 높이.")]
     public float jumpHeight = 1f;
+    [Tooltip("가변 점프: 스페이스를 짧게 탭했을 때의 dy. 누른 시간이 길수록 jumpHeight 까지 올라간다.")]
+    public float jumpHeightMin = 0.45f;
     public float gravity = -20f;
     [Tooltip("(후방추적 전용) 이동 방향으로 몸을 돌리는 속도.")]
     public float turnSpeed = 12f;
@@ -268,8 +270,10 @@ public class PlayerController : NetworkBehaviour
         Vector3 target = gen != null ? gen.MovementBounds.center : Vector3.zero;
         Vector3 toCenter = target - transform.position;
         toCenter.y = 0f;
-        if (toCenter.sqrMagnitude > 0.01f)
-            _yaw = Quaternion.LookRotation(toCenter, Vector3.up).eulerAngles.y;
+        // 시작 섬 중앙(맵 중심과 수평 일치)에서는 방향이 퇴화한다 -> 레인 진행 방향(+X)이 기본.
+        if (toCenter.sqrMagnitude < 0.01f) toCenter = Vector3.right;
+        _yaw = Quaternion.LookRotation(toCenter, Vector3.up).eulerAngles.y;
+        transform.rotation = Quaternion.Euler(0f, _yaw, 0f); // 몸도 즉시 같은 방향(로비 등 이동 잠금 중에도)
         _pitch = Mathf.Clamp(lookResetPitch, aimMinPitch, aimMaxPitch);
     }
 
@@ -294,19 +298,19 @@ public class PlayerController : NetworkBehaviour
     // ============================ 입력: 이동 ============================
     void HandleMovementAim()
     {
-        ReadMove(out float h, out float v, out bool jump);
+        ReadMove(out float h, out float v, out bool jump, out bool jumpHeld);
 
         Quaternion flat = Quaternion.Euler(0f, _yaw, 0f);
         Vector3 dir = flat * Vector3.forward * v + flat * Vector3.right * h;
         if (dir.sqrMagnitude > 1f) dir.Normalize();
 
         transform.rotation = Quaternion.Euler(0f, _yaw, 0f);
-        ApplyMotion(dir, jump);
+        ApplyMotion(dir, jump, jumpHeld);
     }
 
     void HandleMovementFollow()
     {
-        ReadMove(out float h, out float v, out bool jump);
+        ReadMove(out float h, out float v, out bool jump, out bool jumpHeld);
 
         Vector3 dir = new Vector3(h, 0f, v);
         if (dir.sqrMagnitude > 1f) dir.Normalize();
@@ -315,12 +319,12 @@ public class PlayerController : NetworkBehaviour
             Quaternion target = Quaternion.LookRotation(dir, Vector3.up);
             transform.rotation = Quaternion.Slerp(transform.rotation, target, turnSpeed * Time.deltaTime);
         }
-        ApplyMotion(dir, jump);
+        ApplyMotion(dir, jump, jumpHeld);
     }
 
-    void ReadMove(out float h, out float v, out bool jump)
+    void ReadMove(out float h, out float v, out bool jump, out bool jumpHeld)
     {
-        h = 0f; v = 0f; jump = false;
+        h = 0f; v = 0f; jump = false; jumpHeld = false;
         var kb = Keyboard.current;
         if (kb == null) return;
         if (kb.aKey.isPressed) h -= 1f;
@@ -328,9 +332,10 @@ public class PlayerController : NetworkBehaviour
         if (kb.wKey.isPressed) v += 1f;
         if (kb.sKey.isPressed) v -= 1f;
         jump = kb.spaceKey.wasPressedThisFrame;
+        jumpHeld = kb.spaceKey.isPressed;
     }
 
-    void ApplyMotion(Vector3 dir, bool jump)
+    void ApplyMotion(Vector3 dir, bool jump, bool jumpHeld = false)
     {
         if (_cc == null || !_cc.enabled) return;
         if (_cc.isGrounded && _verticalVelocity < 0f)
@@ -341,6 +346,11 @@ public class PlayerController : NetworkBehaviour
             AudioManager.Play(Sfx.Jump);
         }
         _verticalVelocity += gravity * Time.deltaTime;
+
+        // 가변 점프: 상승 중 스페이스를 떼면 상승 속도를 최소 점프 수준으로 잘라
+        // 점프 높이가 누른 시간에 비례한다(탭 = jumpHeightMin, 꾹 = jumpHeight).
+        if (!jumpHeld && _verticalVelocity > 0f)
+            _verticalVelocity = Mathf.Min(_verticalVelocity, Mathf.Sqrt(jumpHeightMin * -2f * gravity));
 
         Vector3 velocity = dir * moveSpeed;
         velocity.y = _verticalVelocity;

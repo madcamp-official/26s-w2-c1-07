@@ -193,6 +193,8 @@ MonoBehaviour:
   movementPadding: 8
   movementHeadroom: 8
   showBoundaryWalls: 0
+  showFinishPlane: 1
+  finishMaterial: {fileID: 2100000, guid: 146cf447f94ed524bbdaebbf4cecb7a8, type: 2}
 --- !u!4 &69890712
 Transform:
   m_ObjectHideFlags: 0
@@ -833,6 +835,7 @@ MonoBehaviour:
   _resultDuration: 14
   _finishGrace: 15
   spawnSpacingX: 2
+  _respawnDelay: 1.5
   _lethalAirFall: 15
   _lethalLandFall: 7
   _visibleAllowance: 030000000200000001000000

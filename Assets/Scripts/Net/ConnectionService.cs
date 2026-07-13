@@ -282,16 +282,18 @@ namespace RouletteParty.Net
         private void HandleConnectionApproval(NetworkManager.ConnectionApprovalRequest request,
                                               NetworkManager.ConnectionApprovalResponse response)
         {
-            // 기존(승인 비활성 시절)과 동일하게 기본 플레이어 프리팹을 자동 스폰.
+            // 기본 플레이어 프리팹을 자동 스폰하되, 접속 순서대로 시작 섬 위에 줄 세우고
+            // 레인 진행 방향(+X)을 보게 한다(전원 같은 지점·같은 기본 회전으로 겹치던 문제 수정).
+            var nm = NetworkManager.Singleton;
+            int idx = nm != null ? nm.ConnectedClients.Count : 0; // 호스트 자신 승인 시 0
             response.CreatePlayerObject = true;
             response.PlayerPrefabHash = null;
-            response.Position = null;
-            response.Rotation = null;
+            response.Position = new Vector3(0f, 1.2f, ((idx % 8) - 3.5f) * 1.2f);
+            response.Rotation = Quaternion.Euler(0f, 90f, 0f);
             response.Pending = false;
             response.Approved = true;
 
             // 호스트 자신의 접속(서버 시작 직후, 씬 NetworkObject 스폰 전)은 항상 승인.
-            var nm = NetworkManager.Singleton;
             if (nm == null) return;
 
             var mm = MatchManager.Instance;

@@ -55,6 +55,8 @@ namespace RouletteParty.Match
         [Header("스폰")]
         [Tooltip("출발 지점 플레이어 간 X 간격.")]
         [SerializeField] private float spawnSpacingX = 1.2f;
+        [Tooltip("낙하 탈락 후 시작 섬 자동 부활까지의 지연(초). 관전이 잠깐 보였다가 복귀한다.")]
+        [SerializeField] private float _respawnDelay = 1.5f;
 
         [Header("낙하 탈락 (서버 판정, 체력 시스템 없음)")]
         [Tooltip("탈락 규칙 ①: 공중 낙하 거리(최고점 - 현재 높이)가 이 값 이상이면 착지 여부와 무관하게 즉시 탈락. 시작 섬 밖 허공 추락도 이 규칙이 잡는다.")]
@@ -167,7 +169,17 @@ namespace RouletteParty.Match
             NetworkManager.OnClientDisconnectCallback -= HandleClientDisconnected;
         }
 
-        private void HandleClientConnected(ulong clientId) => EnsurePlayer(clientId);
+        private void HandleClientConnected(ulong clientId)
+        {
+            EnsurePlayer(clientId);
+            // 대기방(LOBBY) 입장 시 시작 섬 위에 줄 세우기. 이동이 소유자 권위(ClientNetworkTransform)라
+            // 접속 승인 응답의 Position 은 소유자 상태로 덮이므로, 검증된 TeleportOwner(RPC) 경로를 쓴다.
+            if (_phase.Value == MatchPhase.Lobby)
+            {
+                int n = NetworkManager.ConnectedClientsList.Count;
+                TeleportOwner(clientId, SpawnSlot(n - 1, Mathf.Max(1, n)));
+            }
+        }
 
         private void HandleClientDisconnected(ulong clientId)
         {
@@ -190,7 +202,7 @@ namespace RouletteParty.Match
 
             double now = NetworkManager.ServerTime.Time;
 
-            if (_phase.Value == MatchPhase.Play) SamplePlayers(now);
+            if (_phase.Value == MatchPhase.Play) { SamplePlayers(now); ProcessRespawns(now); }
             else                                 RescueFallenPlayers();
 
             if (now >= _phaseEndTime.Value)
@@ -201,9 +213,7 @@ namespace RouletteParty.Match
                 if (_phase.Value != MatchPhase.Lobby || !LobbyManager.WaitsForStart) { AdvancePhase(); return; }
             }
 
-            // 전원 탈락 시 조기 종료(2인 이상 매치에서만; 솔로 테스트는 풀타이머).
-            if (_phase.Value == MatchPhase.Play && _players.Count >= 2 && _aliveCount.Value == 0)
-                AdvancePhase();
+            // (전원 탈락 조기 종료 규칙은 자동 부활 도입으로 폐지 — 탈락은 일시 상태다.)
         }
 
         private float BaseDuration(MatchPhase p)
@@ -228,6 +238,7 @@ namespace RouletteParty.Match
         {
             _phase.Value = p;
             _phaseEndTime.Value = NetworkManager.ServerTime.Time + EffectiveDuration(p);
+            _pendingRespawn.Clear(); // 페이즈 경계에서는 BeginPrep/BeginPlay 가 전원 복귀를 처리한다
 
             switch (p)
             {
@@ -435,7 +446,8 @@ namespace RouletteParty.Match
         }
 
         /// <summary>낙하 탈락 확정(규칙 ①/② 공용). 위치를 통계에 남긴다 —
-        /// 추후 하이라이트가 ClimbMapGenerator.TryGetRegionAt 으로 발판 영역에 귀속시킬 데이터.</summary>
+        /// 추후 하이라이트가 ClimbMapGenerator.TryGetRegionAt 으로 발판 영역에 귀속시킬 데이터.
+        /// 탈락은 일시 상태: _respawnDelay 뒤 시작 섬에서 자동 부활한다(ProcessRespawns).</summary>
         private void EliminateByFall(PlayerRuntime pr, float fallHeight)
         {
             var po = NetworkManager.ConnectedClients.TryGetValue(pr.ClientId, out var cl) ? cl.PlayerObject : null;
@@ -446,6 +458,32 @@ namespace RouletteParty.Match
             pr.DeathHeight = Mathf.Max(0f, FootYOf(po)); // 발끝 기준
             SetDead(pr.ClientId, true);
             _aliveCount.Value = Mathf.Max(0, _aliveCount.Value - 1);
+            _pendingRespawn.Add((pr.ClientId, NetworkManager.ServerTime.Time + _respawnDelay));
+        }
+
+        // ---- 자동 부활(서버) ----
+        // 탈락자를 지연 후 시작 섬에 복귀시킨다. 서버 낙하 추적 기준점(ApexY/LastY)을
+        // 스폰 높이로 리셋해 부활 텔레포트가 낙하로 오인되지 않게 한다.
+        private readonly List<(ulong id, double at)> _pendingRespawn = new List<(ulong, double)>();
+
+        private void ProcessRespawns(double now)
+        {
+            for (int i = _pendingRespawn.Count - 1; i >= 0; i--)
+            {
+                if (now < _pendingRespawn[i].at) continue;
+                ulong id = _pendingRespawn[i].id;
+                _pendingRespawn.RemoveAt(i);
+
+                if (!_players.TryGetValue(id, out var pr)) continue;
+                if (!NetworkManager.ConnectedClients.ContainsKey(id)) continue; // 접속 종료자
+
+                Vector3 slot = SpawnSlot(pr.SpawnIndex, Mathf.Max(1, _players.Count));
+                pr.Alive = true;
+                pr.ApexY = slot.y; pr.LastY = slot.y; pr.FallStillTime = 0f;
+                SetDead(id, false);
+                TeleportOwner(id, slot);
+                _aliveCount.Value = Mathf.Min(_players.Count, _aliveCount.Value + 1);
+            }
         }
 
         // Dead 플래그(플레이어 오브젝트의 NetworkVariable, 서버 write)로 탈락 상태를 전 클라에 전파.
