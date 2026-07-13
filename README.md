@@ -83,10 +83,10 @@
 | 구현 요소 | 설명 | 우선순위 |
 |---|---|---|
 | NGO 호스트 권위 모델 | Netcode for GameObjects 채택. 한 명이 **호스트(서버+클라 겸용)**가 되어 게임 원장(페이즈·점수·체력·사망 판정·구조물 설치 검증)의 단일 권위를 갖는다. 웹 프로토타입의 '서버 권위'를 호스트가 대신한다. | 필수 |
-| 전송 계층 | 현재 **UnityTransport(IP:Port 직접 접속)** 로 동작. 트랜스포트 설정은 `NetworkBootstrap.ApplyConnectionData()` 한 곳에 격리되어 교체가 쉽다. 데모용 원격 접속은 **Unity Relay** 채택 검토 중(docs/완성도_강화_계획.md 5절). Steam(Facepunch) 릴레이는 출시 단계 작업. | 필수(현행) / Steam 은 선택(출시) |
+| 전송 계층 | **Unity Relay(참가 코드) 기본**: 호스트가 방을 만들면 6자리 참가 코드가 발급되고, 참가자는 코드만으로 접속한다. 양쪽 모두 아웃바운드 연결이라 서로 다른 네트워크(캠퍼스 망 격리·NAT·방화벽)에서도 연결된다. UGS 익명 로그인 자동 처리. `ConnectionService._useRelay` 를 끄면 기존 LAN 직접 IP:포트 접속으로 폴백(포트 자동 탐색 유지). Steam(Facepunch) 릴레이는 출시 단계 작업. | 필수(구현됨) / Steam 은 선택(출시) |
 | 이동 동기화 (ClientNetworkTransform) | 각 플레이어 캐릭터는 소유 클라가 로컬 이동하고 `ClientNetworkTransform`(클라 권위 + 내장 보간)으로 위치를 복제. 호스트는 재시뮬 없이 중계·검증. 웹의 '클라 권위 릴레이'와 동일 철학. | 필수 |
 | 상태 = NetworkVariable / RPC | 페이즈·라운드·타이머·승자·맵 시드는 `NetworkVariable<T>`(변경 시 자동 동기화), 일회성 이벤트(텔레포트·탈락 통보)는 대상 지정 `Rpc`, 클라 요청(구조물 설치·낙하 보고·충돌 공개)은 `ServerRpc`, 라운드 결과 목록은 `NetworkList<T>`. | 필수 |
-| 접속·로비 | 현재 접속 GUI(Host/Client 버튼, IP 입력)로 입장. late-join 시 NGO 씬 동기화 + NetworkVariable/NetworkList 초기 동기화로 현재 페이즈·장애물·점수를 받는다. 타이틀 화면 정식화·(Relay 채택 시) Join Code 입력은 완성도 강화 계획 2-1/5-4. Steam 로비·닉네임은 출시 단계. | 필수(개선 예정) |
+| 접속·로비 | 타이틀(닉네임) → 방 만들기(참가 코드 발급)/방 참가(코드 입력) → 대기방(참가자 목록·준비·호스트 시작) 흐름(LobbyUI + LobbyManager + ConnectionService). 접속 승인으로 진행 중 참가·정원 초과를 거절. Steam 로비는 출시 단계. | 필수(구현됨) |
 | 규모 & 부하 검증 | Multiplayer Play Mode(가상 플레이어)와 빌드 다중 실행으로 다인원 테스트, 호스트 대역폭·지연 실측. | 필수 |
 | 끊김 처리·재접속 | 클라 이탈 시 관전·재접속 유예. 호스트 이탈 시 매치 종료(호스트 마이그레이션은 선택). | 권장 |
 | 전용 서버(DGS) 확장 | 대규모 시 헤드리스 Unity 전용 서버(KCLOUD VM 또는 Unity Multiplay)로 전환. NGO 코드 대부분 재사용. | 선택 |

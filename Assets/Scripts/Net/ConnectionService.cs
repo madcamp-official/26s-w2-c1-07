@@ -2,8 +2,13 @@ using System.Collections.Generic;
 using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
+using System.Threading.Tasks;
 using Unity.Netcode;
 using Unity.Netcode.Transports.UTP;
+using Unity.Services.Authentication; // 익명 로그인(Relay 필수)
+using Unity.Services.Core;           // UnityServices 초기화
+using Unity.Services.Relay;          // RelayService(할당·참가 코드)
+using Unity.Services.Relay.Models;   // Allocation / JoinAllocation
 using UnityEngine;
 using RouletteParty.Match; // MatchManager (접속 승인: 페이즈/정원 검증)
 
@@ -20,18 +25,46 @@ namespace RouletteParty.Net
     ///  - 접속 승인(ConnectionApproval, 서버): LOBBY 외 페이즈 신규 참가 거절("게임이 이미 진행 중"),
     ///    정원 초과 거절("방이 가득 참"). 거절 사유는 클라의 NetworkManager.DisconnectReason 으로 전달.
     ///
-    /// [Relay/Steam 전환 지점] 참가 코드 방식(Unity Relay 등) 도입 시 CreateRoom/JoinRoom 내부와
-    /// 주소 표시 프로퍼티만 교체하면 UI(LobbyUI)는 그대로 재사용한다.
+    /// [Unity Relay 모드, 기본 ON(_useRelay)] 서로 다른 네트워크(집/카페/캠퍼스 망 격리)에서도
+    /// 접속되도록 유니티 릴레이 서버를 경유한다. 양쪽 모두 아웃바운드 연결만 쓰므로 방화벽·NAT
+    /// 설정이 필요 없다. 흐름: UGS 초기화 + 익명 로그인 -> 호스트 CreateAllocation + 참가 코드 발급
+    /// -> 참가자는 코드로 JoinAllocation -> UnityTransport 에 릴레이 데이터 주입 -> StartHost/Client.
+    /// 비동기(수 초)이므로 UI 는 RelayBusy 로 진행 상태를, ConsumeLastError() 로 실패 사유를 읽는다.
+    /// _useRelay 를 끄면 기존 LAN 직접 IP 접속으로 폴백(오프라인 시연 대비).
+    /// [Steam 전환 지점] Facepunch 도입 시에도 같은 자리(CreateRoom/JoinRoom 내부)만 교체한다.
     /// 씬 배치: NetworkManager 오브젝트에 컴포넌트로 추가한다(에디터 Add Component).
     /// </summary>
     [DisallowMultipleComponent]
     public class ConnectionService : MonoBehaviour
     {
-        [Header("접속 기본값")]
+        [Header("Unity Relay (기본 접속 방식)")]
+        [Tooltip("켜면 유니티 릴레이(참가 코드)로 접속한다: 서로 다른 네트워크 간에도 연결됨. " +
+                 "끄면 기존 LAN 직접 IP:포트 접속으로 폴백(오프라인 시연용).")]
+        [SerializeField] private bool _useRelay = true;
+        [Tooltip("릴레이 방의 최대 '참가자' 수(호스트 제외). LobbyManager.MaxPlayers - 1 과 맞출 것.")]
+        [SerializeField, Range(1, 15)] private int _relayMaxConnections = 7;
+
+        [Header("LAN 접속 기본값 (_useRelay 꺼짐일 때)")]
         [Tooltip("방 만들기 기본 UDP 포트. 사용 중이면 다음 포트를 자동 탐색한다(ActivePort 에 확정).")]
         [SerializeField] private ushort _defaultPort = 7777;
 
         public ushort DefaultPort => _defaultPort;
+        /// <summary>릴레이 모드 여부(UI 분기: 참가 코드 입력 vs IP:포트 입력).</summary>
+        public bool UseRelay => _useRelay;
+        /// <summary>호스트가 발급받은 릴레이 참가 코드(참가자에게 전달할 값). 릴레이 모드 전용.</summary>
+        public string JoinCode { get; private set; } = "";
+        /// <summary>릴레이 비동기 절차(로그인/할당/참가) 진행 중 여부. UI 는 이 동안 버튼을 잠근다.</summary>
+        public bool RelayBusy { get; private set; }
+
+        // 비동기 실패 사유(1회 소비). async void 경로의 오류를 UI 로 전달하는 통로.
+        private string _lastAsyncError;
+        /// <summary>마지막 비동기 오류를 읽고 비운다(없으면 null). UI 가 매 프레임 폴링.</summary>
+        public string ConsumeLastError()
+        {
+            string e = _lastAsyncError;
+            _lastAsyncError = null;
+            return e;
+        }
 
         public static ConnectionService Instance { get; private set; }
 
@@ -73,17 +106,25 @@ namespace RouletteParty.Net
         // ============================ 방 만들기 / 참가 / 나가기 ============================
 
         /// <summary>
-        /// 방 만들기 = 호스트 시작. 성공 시 ActivePort/PrimaryLanIp 가 채워지고, 실패 시 error 에
-        /// 사용자에게 보여줄 메시지가 담긴다(이미 접속 중/종료 처리 중 이중 클릭도 여기서 차단).
+        /// 방 만들기 = 호스트 시작.
+        /// 릴레이 모드: 비동기 절차를 시작하고 즉시 true 를 반환한다(진행 상태는 RelayBusy,
+        /// 참가 코드는 JoinCode, 실패는 ConsumeLastError 로 전달). LAN 모드: 즉시 StartHost.
         /// </summary>
         public bool CreateRoom(ushort preferredPort, out string error)
         {
+            if (RelayBusy) { error = "릴레이 접속 처리 중입니다. 잠시만 기다려 주세요."; return false; }
             if (!PrepareStart(out var nm, out error)) return false;
 
             // 신규 참가 정책(진행 중/정원 초과 거절)은 서버 접속 승인에서 검증한다.
             // StartHost "이전"에 설정해야 승인 경로가 활성화된다.
             nm.NetworkConfig.ConnectionApproval = true;
             nm.ConnectionApprovalCallback = HandleConnectionApproval;
+
+            if (_useRelay)
+            {
+                CreateRelayRoomAsync(nm); // async void: 완료/실패는 상태 프로퍼티로 전달
+                return true;
+            }
 
             ushort port = FindFreeUdpPort(preferredPort);
             PortFallbackUsed = port != preferredPort;
@@ -98,6 +139,96 @@ namespace RouletteParty.Net
                 return false;
             }
             return true;
+        }
+
+        /// <summary>방 참가(릴레이) = 참가 코드로 클라이언트 시작. 비동기(RelayBusy/ConsumeLastError).</summary>
+        public bool JoinRoomByCode(string joinCode, out string error)
+        {
+            if (RelayBusy) { error = "릴레이 접속 처리 중입니다. 잠시만 기다려 주세요."; return false; }
+            if (!PrepareStart(out var nm, out error)) return false;
+
+            // ★서버(CreateRoom)와 반드시 같은 값★ (NetworkConfig 해시 비교 -> 다르면 서버가 끊음)
+            nm.NetworkConfig.ConnectionApproval = true;
+
+            JoinTarget = $"코드 {joinCode}";
+            JoinRelayRoomAsync(nm, joinCode);
+            return true;
+        }
+
+        // ============================ Unity Relay (비동기 경로) ============================
+
+        // UGS 초기화 + 익명 로그인(1회). 에디터 다중 인스턴스(MPPM 가상 플레이어)가 같은 익명
+        // 프로필을 두고 충돌하지 않도록 프로세스별 프로필로 분리한다(익명 계정이라 부담 없음).
+        private static async Task EnsureServicesAsync()
+        {
+            if (UnityServices.State != ServicesInitializationState.Initialized)
+            {
+                var options = new InitializationOptions();
+                try { options.SetProfile("p" + (System.Environment.ProcessId % 100000)); }
+                catch { /* 프로필 미지원 환경이면 기본 프로필 사용 */ }
+                await UnityServices.InitializeAsync(options);
+            }
+            if (!AuthenticationService.Instance.IsSignedIn)
+                await AuthenticationService.Instance.SignInAnonymouslyAsync();
+        }
+
+        // 호스트: 할당 생성 -> 참가 코드 발급 -> 트랜스포트에 릴레이 데이터 주입 -> StartHost.
+        private async void CreateRelayRoomAsync(NetworkManager nm)
+        {
+            RelayBusy = true;
+            JoinCode = "";
+            try
+            {
+                await EnsureServicesAsync();
+
+                Allocation allocation = await RelayService.Instance.CreateAllocationAsync(_relayMaxConnections);
+                JoinCode = await RelayService.Instance.GetJoinCodeAsync(allocation.AllocationId);
+
+                var transport = nm.GetComponent<UnityTransport>();
+                transport.SetRelayServerData(AllocationUtils.ToRelayServerData(allocation, "dtls"));
+
+                if (!nm.StartHost())
+                    _lastAsyncError = "호스트 시작에 실패했습니다. 콘솔 로그를 확인하세요.";
+                else
+                    Debug.Log($"[Net] Relay 호스트 시작, 참가 코드 {JoinCode}");
+            }
+            catch (System.Exception e)
+            {
+                _lastAsyncError = "릴레이 방 생성에 실패했습니다: " + Summarize(e);
+                Debug.LogException(e);
+            }
+            finally { RelayBusy = false; }
+        }
+
+        // 참가자: 코드로 할당 참가 -> 트랜스포트에 릴레이 데이터 주입 -> StartClient.
+        private async void JoinRelayRoomAsync(NetworkManager nm, string joinCode)
+        {
+            RelayBusy = true;
+            try
+            {
+                await EnsureServicesAsync();
+
+                JoinAllocation allocation = await RelayService.Instance.JoinAllocationAsync(joinCode);
+
+                var transport = nm.GetComponent<UnityTransport>();
+                transport.SetRelayServerData(AllocationUtils.ToRelayServerData(allocation, "dtls"));
+
+                if (!nm.StartClient())
+                    _lastAsyncError = "클라이언트 시작에 실패했습니다. 콘솔 로그를 확인하세요.";
+            }
+            catch (System.Exception e)
+            {
+                _lastAsyncError = "코드로 참가하지 못했습니다: 코드가 맞는지, 방이 아직 열려 있는지 확인하세요.";
+                Debug.LogException(e);
+            }
+            finally { RelayBusy = false; }
+        }
+
+        // 서비스 예외를 사용자 메시지로 축약(전체 스택은 콘솔 로그로).
+        private static string Summarize(System.Exception e)
+        {
+            string m = e.Message ?? "";
+            return m.Length > 120 ? m.Substring(0, 120) + "..." : m;
         }
 
         /// <summary>방 참가 = 클라이언트 시작. ip 는 호출 전에 IPv4 검증을 마친 값이어야 한다.</summary>

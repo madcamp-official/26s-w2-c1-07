@@ -39,6 +39,7 @@ namespace RouletteParty.UI
         private string _nickname;
         private string _joinIp = "192.168.";
         private string _joinPortText = "7777";
+        private string _joinCode = "";      // 릴레이 모드 참가 코드 입력
         private string _message = "";   // 상태/오류 안내(화면 하단)
         private float _connectStart;
         private bool _timedOut;         // 타임아웃으로 인한 종료였는지(메시지 구분용)
@@ -80,13 +81,28 @@ namespace RouletteParty.UI
                 _prevNet = net;
             }
 
+            // 릴레이 비동기 절차(로그인/할당/참가)의 실패 사유를 UI 메시지로 수거.
+            var csvc = ConnectionService.Instance;
+            if (csvc != null)
+            {
+                string asyncErr = csvc.ConsumeLastError();
+                if (!string.IsNullOrEmpty(asyncErr)) _message = asyncErr;
+            }
+
             switch (net)
             {
                 case NetState.Offline:
                 case NetState.Busy:
-                    // 오프라인이 된 화면 정리(메시지는 HandleTransition 이 채움).
-                    if (_view == View.Connecting || _view == View.Waiting || _view == View.InGame)
+                    if (csvc != null && csvc.RelayBusy)
+                    {
+                        // 릴레이 준비 중(아직 NGO 시작 전이라 NetState 는 Offline) -> 접속 중 화면 유지.
+                        _view = View.Connecting;
+                    }
+                    else if (_view == View.Connecting || _view == View.Waiting || _view == View.InGame)
+                    {
+                        // 오프라인이 된 화면 정리(메시지는 HandleTransition 이 채움).
                         _view = View.Title;
+                    }
                     break;
 
                 case NetState.Connecting:
@@ -164,34 +180,51 @@ namespace RouletteParty.UI
             SaveNickname();
             var cs = ConnectionService.Instance;
             if (cs == null) { _message = "ConnectionService 가 씬에 없습니다(NetworkManager 오브젝트 확인)."; return; }
-            if (!cs.CreateRoom(cs.DefaultPort, out string err)) _message = err;
+            if (!cs.CreateRoom(cs.DefaultPort, out string err)) { _message = err; return; }
             // 성공 시 Update 가 Online 전환을 감지해 대기방으로 넘어간다.
+            // 릴레이 모드는 비동기(로그인+할당, 수 초)라 그동안 접속 중 화면이 표시된다.
+            _message = "";
+            _connectStart = Time.unscaledTime;
         }
 
         private void OnJoin()
         {
             SaveNickname();
 
-            string ip = (_joinIp ?? "").Trim();
-            if (ip.Equals("localhost", System.StringComparison.OrdinalIgnoreCase))
-                ip = "127.0.0.1"; // 같은 PC 개발 테스트 전용(다른 PC 접속에는 호스트 LAN IP 필요)
-            // IPAddress.TryParse 는 "192.168.0" 같은 축약 표기도 통과시키므로 4옥텟을 강제한다.
-            if (ip.Split('.').Length != 4 ||
-                !System.Net.IPAddress.TryParse(ip, out var parsed) ||
-                parsed.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork)
-            {
-                _message = "IPv4 주소 형식이 아닙니다. 예: 192.168.0.10";
-                return;
-            }
-            if (!ushort.TryParse((_joinPortText ?? "").Trim(), out ushort port) || port == 0)
-            {
-                _message = "포트는 1~65535 사이 숫자여야 합니다.";
-                return;
-            }
-
             var cs = ConnectionService.Instance;
             if (cs == null) { _message = "ConnectionService 가 씬에 없습니다(NetworkManager 오브젝트 확인)."; return; }
-            if (!cs.JoinRoom(ip, port, out string err)) { _message = err; return; }
+
+            if (cs.UseRelay)
+            {
+                // 릴레이: 참가 코드로 접속(대소문자 무관 -> 대문자 정규화).
+                string code = (_joinCode ?? "").Trim().ToUpperInvariant();
+                if (code.Length < 4)
+                {
+                    _message = "참가 코드를 입력하세요(호스트 대기방 화면에 표시됩니다).";
+                    return;
+                }
+                if (!cs.JoinRoomByCode(code, out string errRelay)) { _message = errRelay; return; }
+            }
+            else
+            {
+                string ip = (_joinIp ?? "").Trim();
+                if (ip.Equals("localhost", System.StringComparison.OrdinalIgnoreCase))
+                    ip = "127.0.0.1"; // 같은 PC 개발 테스트 전용(다른 PC 접속에는 호스트 LAN IP 필요)
+                // IPAddress.TryParse 는 "192.168.0" 같은 축약 표기도 통과시키므로 4옥텟을 강제한다.
+                if (ip.Split('.').Length != 4 ||
+                    !System.Net.IPAddress.TryParse(ip, out var parsed) ||
+                    parsed.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork)
+                {
+                    _message = "IPv4 주소 형식이 아닙니다. 예: 192.168.0.10";
+                    return;
+                }
+                if (!ushort.TryParse((_joinPortText ?? "").Trim(), out ushort port) || port == 0)
+                {
+                    _message = "포트는 1~65535 사이 숫자여야 합니다.";
+                    return;
+                }
+                if (!cs.JoinRoom(ip, port, out string err)) { _message = err; return; }
+            }
 
             _message = "";
             _timedOut = false;
@@ -309,12 +342,22 @@ namespace RouletteParty.UI
             GUILayout.Label("방 참가", _stTitle);
             GUILayout.Space(20);
 
-            GUILayout.Label("Host IP (호스트 화면에 표시된 접속 주소)", _stLabel);
-            _joinIp = GUILayout.TextField(_joinIp ?? "", 64, _stInput, GUILayout.Height(52));
+            bool relayJoin = ConnectionService.Instance != null && ConnectionService.Instance.UseRelay;
+            if (relayJoin)
+            {
+                GUILayout.Label("참가 코드 (호스트 대기방 화면에 표시)", _stLabel);
+                _joinCode = GUILayout.TextField(_joinCode ?? "", 12, _stInput, GUILayout.Height(52));
+                GUILayout.Label("서로 다른 네트워크(다른 와이파이/집)에서도 접속됩니다.", _stSmall);
+            }
+            else
+            {
+                GUILayout.Label("Host IP (호스트 화면에 표시된 접속 주소)", _stLabel);
+                _joinIp = GUILayout.TextField(_joinIp ?? "", 64, _stInput, GUILayout.Height(52));
 
-            GUILayout.Space(10);
-            GUILayout.Label("Port", _stLabel);
-            _joinPortText = GUILayout.TextField(_joinPortText ?? "", 6, _stInput, GUILayout.Height(52));
+                GUILayout.Space(10);
+                GUILayout.Label("Port", _stLabel);
+                _joinPortText = GUILayout.TextField(_joinPortText ?? "", 6, _stInput, GUILayout.Height(52));
+            }
 
             GUILayout.Space(24);
             if (GUILayout.Button("참가", _stBtnBig, GUILayout.Height(62))) OnJoin();
@@ -330,14 +373,20 @@ namespace RouletteParty.UI
         // ---------------- 접속 중 ----------------
         private void DrawConnecting(float w, float h)
         {
+            var cs = ConnectionService.Instance;
+            bool relayPrep = cs != null && cs.RelayBusy; // 릴레이 로그인/할당 진행 중(NGO 시작 전)
+            bool hostSide = NetworkManager.Singleton == null ||
+                            (!NetworkManager.Singleton.IsClient && string.IsNullOrEmpty(cs != null ? cs.JoinTarget : ""));
+
             GUILayout.BeginArea(CenterRect(w, h, 560, 300), GUI.skin.box);
             GUILayout.Space(30);
             int sec = Mathf.FloorToInt(Time.unscaledTime - _connectStart);
-            GUILayout.Label("서버에 연결하는 중…", _stTitle);
-            GUILayout.Label($"{(ConnectionService.Instance != null ? ConnectionService.Instance.JoinTarget : "")}  ({sec}초)",
+            GUILayout.Label(relayPrep ? "릴레이 준비 중…" : "서버에 연결하는 중…", _stTitle);
+            GUILayout.Label($"{(cs != null && !hostSide ? cs.JoinTarget : "")}  ({sec}초)",
                             new GUIStyle(_stLabel) { alignment = TextAnchor.MiddleCenter });
             GUILayout.FlexibleSpace();
-            if (GUILayout.Button("취소", _stBtn, GUILayout.Height(48)))
+            // 릴레이 준비 단계는 중간 취소가 불가(비동기 완료 후 상태로 정리됨) -> 버튼 숨김.
+            if (!relayPrep && GUILayout.Button("취소", _stBtn, GUILayout.Height(48)))
             {
                 _localLeave = true;
                 var nm = NetworkManager.Singleton;
@@ -360,28 +409,41 @@ namespace RouletteParty.UI
             GUILayout.Label("대기방", _stTitle);
             GUILayout.Space(10);
 
-            // ---- 접속 주소(호스트: LAN IP + 실제 포트 / 클라: 접속한 대상) ----
-            string addr = isServer ? (cs != null ? cs.HostFullAddress : "?")
-                                   : (cs != null ? cs.JoinTarget : "?");
+            // ---- 접속 정보(릴레이: 참가 코드 / LAN: IP:포트) ----
+            bool relay = cs != null && cs.UseRelay;
+            string addr;
+            if (isServer)
+                addr = relay ? (string.IsNullOrEmpty(cs.JoinCode) ? "발급 중..." : cs.JoinCode)
+                             : (cs != null ? cs.HostFullAddress : "?");
+            else
+                addr = cs != null ? cs.JoinTarget : "?";
+
             GUILayout.BeginHorizontal();
-            GUILayout.Label($"접속 주소  <b>{addr}</b>", _stRow);
+            GUILayout.Label(relay ? $"참가 코드  <b>{addr}</b>" : $"접속 주소  <b>{addr}</b>", _stRow);
             GUILayout.FlexibleSpace();
-            if (GUILayout.Button("주소 복사", _stBtn, GUILayout.Width(140), GUILayout.Height(40)))
+            if (GUILayout.Button(relay ? "코드 복사" : "주소 복사", _stBtn, GUILayout.Width(140), GUILayout.Height(40)))
             {
                 GUIUtility.systemCopyBuffer = addr;
-                _message = "접속 주소를 복사했습니다.";
+                _message = relay ? "참가 코드를 복사했습니다." : "접속 주소를 복사했습니다.";
             }
             GUILayout.EndHorizontal();
 
             if (isServer && cs != null)
             {
-                if (cs.PortFallbackUsed)
-                    GUILayout.Label($"기본 포트({cs.DefaultPort})가 사용 중이라 {cs.ActivePort} 포트로 열렸습니다. 참가자는 이 포트를 입력해야 합니다.", _stSmall);
-                if (string.IsNullOrEmpty(cs.PrimaryLanIp))
-                    GUILayout.Label("LAN IPv4 주소를 찾지 못했습니다. 호스트 PC 에서 ipconfig 로 IPv4 주소를 확인해 참가자에게 알려주세요.", _stSmall);
-                else if (cs.LanIpCandidates.Count > 1)
-                    GUILayout.Label("주소가 여러 개 감지됨(VPN/가상 어댑터 가능): " + string.Join(", ", cs.LanIpCandidates), _stSmall);
-                GUILayout.Label("같은 네트워크(공유기)에 연결된 참가자에게 위 접속 주소를 알려주세요.", _stSmall);
+                if (relay)
+                {
+                    GUILayout.Label("참가자에게 위 참가 코드를 알려주세요. 서로 다른 네트워크(다른 와이파이/집)에서도 접속됩니다.", _stSmall);
+                }
+                else
+                {
+                    if (cs.PortFallbackUsed)
+                        GUILayout.Label($"기본 포트({cs.DefaultPort})가 사용 중이라 {cs.ActivePort} 포트로 열렸습니다. 참가자는 이 포트를 입력해야 합니다.", _stSmall);
+                    if (string.IsNullOrEmpty(cs.PrimaryLanIp))
+                        GUILayout.Label("LAN IPv4 주소를 찾지 못했습니다. 호스트 PC 에서 ipconfig 로 IPv4 주소를 확인해 참가자에게 알려주세요.", _stSmall);
+                    else if (cs.LanIpCandidates.Count > 1)
+                        GUILayout.Label("주소가 여러 개 감지됨(VPN/가상 어댑터 가능): " + string.Join(", ", cs.LanIpCandidates), _stSmall);
+                    GUILayout.Label("같은 네트워크(공유기)에 연결된 참가자에게 위 접속 주소를 알려주세요.", _stSmall);
+                }
             }
 
             GUILayout.Space(12);
