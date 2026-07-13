@@ -89,6 +89,9 @@ public class PlayerController : NetworkBehaviour
         }
     }
 
+    /// <summary>현재 수직 속도(소유자). 잡기(PlayerGrab)의 "떨어질 때만 잡기" 판정용.</summary>
+    public float VerticalVelocity => _verticalVelocity;
+
     public bool IsAiming { get; private set; }
     public Ray AimRay { get; private set; }
     public Vector3 AimPoint { get; private set; }

@@ -30,7 +30,15 @@ public class PlayerGrab : NetworkBehaviour
 {
     [Header("렛지 잡기")]
     [Tooltip("전방 벽면 감지 거리(m). 캡슐 반지름(0.5)보다 커야 한다.")]
-    [SerializeField] private float _ledgeReach = 0.95f;
+    [SerializeField] private float _ledgeReach = 0.8f;
+    [Tooltip("이 수직 속도 이하(= 하강 시작)일 때만 잡는다. 상승 중 자석처럼 붙는 억지 잡기 방지.")]
+    [SerializeField] private float _grabMaxRiseSpeed = 0.5f;
+    [Tooltip("공중에 이 시간(초) 이상 있어야 잡는다. 점프 직후 옆 벽에 즉시 붙는 것 방지.")]
+    [SerializeField] private float _minAirTime = 0.12f;
+    [Tooltip("벽면을 이 각도(도) 이내로 마주봐야 잡는다.")]
+    [SerializeField] private float _maxFacingAngle = 55f;
+    [Tooltip("매달림 진입 블렌드 시간(초). 0 이면 즉시 스냅.")]
+    [SerializeField] private float _hangBlendTime = 0.12f;
     [Tooltip("잡을 수 있는 모서리 높이 범위: 발끝 기준 최소(이보다 낮으면 그냥 올라간다).")]
     [SerializeField] private float _ledgeMinAbove = 0.4f;
     [Tooltip("잡을 수 있는 모서리 높이 범위: 발끝 기준 최대(점프 dy 1 + 팔 리치).")]
@@ -74,6 +82,10 @@ public class PlayerGrab : NetworkBehaviour
     float _mantleT;
     Vector3 _mantleFrom;
     float _noRegrabUntil;
+    float _airTime;             // 연속 공중 시간(즉시 붙기 방지 게이트)
+    Vector3 _hangEnterPos;      // 매달림 진입 블렌드 시작 자세
+    Quaternion _hangEnterRot;
+    float _hangBlend;
     bool _grabbingPlayer;       // 내가 상대를 잡는 중(로컬 표시용, 진실은 서버)
     NetworkObjectReference _grabTargetRef;
 
@@ -123,6 +135,10 @@ public class PlayerGrab : NetworkBehaviour
         var mouse = Mouse.current;
         bool hold = mouse != null && mouse.leftButton.isPressed;
 
+        // 공중 시간 추적(점프 직후 옆 벽에 즉시 붙는 억지 잡기 방지 게이트).
+        if (_cc.enabled && _cc.isGrounded) _airTime = 0f;
+        else _airTime += Time.deltaTime;
+
         switch (_state)
         {
             case LedgeState.Hanging:  return TickHanging(hold);
@@ -135,7 +151,11 @@ public class PlayerGrab : NetworkBehaviour
         if (!_cc.isGrounded)
         {
             ReleasePlayerGrab(); // 공중에선 렛지 우선
-            if (Time.time >= _noRegrabUntil) TryStartHang();
+            // 떨어질 때만(상승 중 금지) + 최소 공중 시간 경과 후에만 잡는다.
+            if (Time.time >= _noRegrabUntil
+                && _airTime >= _minAirTime
+                && _pc.VerticalVelocity <= _grabMaxRiseSpeed)
+                TryStartHang();
             return _state != LedgeState.None;
         }
 
@@ -179,8 +199,10 @@ public class PlayerGrab : NetworkBehaviour
         if (RaycastSolid(faceOrigin, fwd, _cc.radius + _ledgeReach, out RaycastHit wall)
             && Mathf.Abs(wall.normal.y) < 0.5f)
         {
-            facePoint = wall.point;
             faceNormal = new Vector3(wall.normal.x, 0f, wall.normal.z).normalized;
+            // 벽을 어느 정도 마주봐야 잡힌다(옆·뒤 방향 억지 잡기 방지).
+            if (Vector3.Angle(fwd, -faceNormal) > _maxFacingAngle) return;
+            facePoint = wall.point;
         }
         else
         {
@@ -197,7 +219,10 @@ public class PlayerGrab : NetworkBehaviour
         _cc.enabled = false; // 매달림 동안 CC 시뮬 정지(밀림 방지)
         _pc.OnGrabHangStart();
         _state = LedgeState.Hanging;
-        SnapToHangPose();
+        _hangEnterPos = transform.position; // 순간이동 대신 블렌드 진입(억지 잡기 느낌 방지)
+        _hangEnterRot = transform.rotation;
+        _hangBlend = 0f;
+        ApplyHangPose();
     }
 
     // 자기 자신/다른 플레이어/숨겨진 투명 구조물을 제외한 첫 히트.
@@ -225,15 +250,21 @@ public class PlayerGrab : NetworkBehaviour
     Vector3 EdgeWorld()   => _ledgeRef.TransformPoint(_ledgeLocalPoint);
     Vector3 NormalWorld() { var v = _ledgeRef.TransformDirection(_ledgeLocalNormal); v.y = 0f; return v.sqrMagnitude > 0.001f ? v.normalized : -transform.forward; }
 
-    void SnapToHangPose()
+    void ApplyHangPose()
     {
         Vector3 edge = EdgeWorld();
         Vector3 n = NormalWorld();
         // 발끝 = 모서리 - hangDepth, 몸은 벽면 밖으로 캡슐 반지름만큼.
         Vector3 pos = edge + n * (_cc.radius + 0.05f);
         pos.y = edge.y - _hangDepth + 1f; // FootY 오프셋(캡슐 중심 y - 1 = 발끝)
-        transform.position = pos;
-        transform.rotation = Quaternion.LookRotation(-n, Vector3.up); // 벽을 마주본다
+        Quaternion rot = Quaternion.LookRotation(-n, Vector3.up); // 벽을 마주본다
+
+        // 진입 블렌드: 잡은 순간 자세에서 매달림 자세로 부드럽게. 이후엔 밀착 유지(이동 발판 추적).
+        _hangBlend = _hangBlendTime <= 0f ? 1f
+            : Mathf.Min(1f, _hangBlend + Time.deltaTime / _hangBlendTime);
+        float t = Mathf.SmoothStep(0f, 1f, _hangBlend);
+        transform.position = Vector3.Lerp(_hangEnterPos, pos, t);
+        transform.rotation = Quaternion.Slerp(_hangEnterRot, rot, t);
     }
 
     bool TickHanging(bool hold)
@@ -258,7 +289,7 @@ public class PlayerGrab : NetworkBehaviour
             return false;
         }
 
-        SnapToHangPose(); // 움직이는 발판 추적 포함
+        ApplyHangPose(); // 진입 블렌드 + 움직이는 발판 추적
         return true;
     }
 
