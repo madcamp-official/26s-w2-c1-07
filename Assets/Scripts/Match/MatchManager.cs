@@ -74,6 +74,8 @@ namespace RouletteParty.Match
         [SerializeField] private GameObject _cylinderPrefab;
         [FormerlySerializedAs("_ghostPrefab")]
         [SerializeField] private GameObject _invisiblePrefab;
+        [SerializeField] private GameObject _treePrefab;
+        [SerializeField] private GameObject _rockPrefab;
 
         [Header("점수")]
         [Tooltip("라운드 점수 설정(공식은 MatchScoring.RoundScore 한 곳에만 존재).")]
@@ -526,6 +528,8 @@ namespace RouletteParty.Match
                 case StructureType.Wall:      return _wallPrefab;
                 case StructureType.Cylinder:  return _cylinderPrefab;
                 case StructureType.Invisible: return _invisiblePrefab;
+                case StructureType.Tree:      return _treePrefab;
+                case StructureType.Rock:      return _rockPrefab;
                 default:                      return _wallPrefab;
             }
         }

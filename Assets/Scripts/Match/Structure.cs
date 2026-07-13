@@ -7,10 +7,11 @@ using RouletteParty.Audio; // AudioManager (설치/발동 사운드)
 namespace RouletteParty.Match
 {
     /// <summary>
-    /// 구조물 종류. Wall/Cylinder = 보이는 구조물, Invisible = 보이지 않는 구조물.
-    /// byte 백킹 -> RPC/NetworkVariable 직렬화 그대로 사용(값 변경 금지: 와이어 포맷).
+    /// 구조물 종류. Invisible 만 보이지 않는 구조물, 나머지는 전부 보이는 구조물.
+    /// 보이는 구조물의 형태는 설치 시 랜덤으로 정해진다(PrepClientUI 가 굴림, 서버는 종류만 검증).
+    /// byte 백킹 -> RPC/NetworkVariable 직렬화 그대로 사용(기존 값 변경 금지: 와이어 포맷. 추가만 허용).
     /// </summary>
-    public enum StructureType : byte { Wall = 0, Cylinder = 1, Invisible = 2 }
+    public enum StructureType : byte { Wall = 0, Cylinder = 1, Invisible = 2, Tree = 3, Rock = 4 }
 
     /// <summary>
     /// 구조물(플레이어가 설치하는 Object). 클라이밍 전환 명세 6절의 가시성 규칙 구현.

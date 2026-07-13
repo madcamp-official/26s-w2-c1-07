@@ -164,8 +164,6 @@ MonoBehaviour:
   laneHalfWidth: 1.5
   lateralJitter: 1
   platformPrefabs:
-  - {fileID: 3823038366554229154, guid: 171b8a476825aab4bbb06461301ba6c9, type: 3}
-  - {fileID: -4043728930769492149, guid: fbf43295181306b4a80f88701719cb69, type: 3}
   - {fileID: 898922820652318928, guid: 68c9aa6c5699b49458b6dbc9ded3a63a, type: 3}
   - {fileID: 7944581271079417781, guid: 1088b89b800eafd40b023734dc475156, type: 3}
   - {fileID: 3190709094933979470, guid: 5f91cd3b99cf11a47a8582da960b0fda, type: 3}
@@ -174,6 +172,14 @@ MonoBehaviour:
   - {fileID: 8208404571728248289, guid: 72e04527a6136a04db724916e8105c32, type: 3}
   - {fileID: 153683816745719529, guid: 3bbd9dd0e5834a74f93cf00eec34081c, type: 3}
   - {fileID: 556797735826849617, guid: 0b4fdb8fb686d0b4d993438c67ae7bd0, type: 3}
+  - {fileID: 7236668554491979240, guid: f7ee363c34d8abc409ce7571e2a83d19, type: 3}
+  - {fileID: 1622149145969614960, guid: b72792a4493b05b4097eeb5dad5c2b7b, type: 3}
+  - {fileID: 1572055631111915911, guid: 0fcba67a65295d048b4dc97963dfbc28, type: 3}
+  - {fileID: 8329738801583316879, guid: c39c66d74edb8494494562a003b131e9, type: 3}
+  - {fileID: 676141235924849078, guid: a3092400f7033eb4f83b3288893e4ef8, type: 3}
+  - {fileID: 4502039273891891585, guid: bf1e622a4bf774641a1e113323219b28, type: 3}
+  - {fileID: 6547051151732050576, guid: 7257d505167c23f4788a302f5c113215, type: 3}
+  - {fileID: 4784896284820870728, guid: 85e092052158a1c47b369d3cf19b0773, type: 3}
   fallbackPlatformSize: {x: 5, y: 0.5, z: 3}
   structureMaterials:
   - {fileID: 2100000, guid: ae14cd635a9d78a4fa84bf72d891d3a8, type: 2}
@@ -835,6 +841,8 @@ MonoBehaviour:
   _wallPrefab: {fileID: 3080545699982424362, guid: 4bd61b8f14406d84fadc0b2b5a9c2cc8, type: 3}
   _cylinderPrefab: {fileID: 5695219427646287698, guid: 82d7bcb6067fb11478f9ddf0903157bd, type: 3}
   _invisiblePrefab: {fileID: 463762144606901678, guid: b23093dc222ff5d4c97e675ccd60e863, type: 3}
+  _treePrefab: {fileID: 4333472719036419346, guid: 2afcc1c9cedb8e045b386862a30bbf00, type: 3}
+  _rockPrefab: {fileID: 1956288290601745456, guid: 00e338fdf40af6b4984a95697604c119, type: 3}
   _scoring:
     heightScoreMax: 700
     heightCurve:

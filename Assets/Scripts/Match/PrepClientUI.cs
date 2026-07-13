@@ -49,7 +49,13 @@ namespace RouletteParty.Match
         [Tooltip("함정 겹침 거부 시 경고 문구 표시 시간(초).")]
         [SerializeField] private float _trapToastDuration = 2.5f;
 
+        // 보이는 구조물 형태 풀: 설치할 때마다 이 중에서 랜덤으로 다음 형태가 정해진다.
+        private static readonly StructureType[] VisiblePool =
+            { StructureType.Wall, StructureType.Cylinder, StructureType.Tree, StructureType.Rock };
+
         private StructureType _selected = StructureType.Wall;
+        private StructureType _nextVisible = StructureType.Wall; // 이번에 굴려진 보이는 형태
+        private int _lastVisibleMine = -1;                       // 설치 성공 감지(증가 시 재굴림)
         private int _yawStep;
         private bool _airMode;            // false = 표면(조준점) 모드, true = 공중(거리 d) 모드
         private float _airDistance = 6f;  // 공중 모드 설치 거리(전환 순간 조준점 거리로 재설정)
@@ -92,6 +98,9 @@ namespace RouletteParty.Match
                 _inPrep = true;
                 _airMode = false; // 매 PREP 은 기본(표면) 모드로 시작
                 CountMine(out _baseVisible, out _baseInvisible);
+                _lastVisibleMine = _baseVisible;
+                RollNextVisible();                 // 이번 PREP 의 첫 형태 굴림
+                _selected = _nextVisible;          // 기본 선택 = 보이는(랜덤)
             }
             else if (!active && _inPrep)
             {
@@ -103,12 +112,22 @@ namespace RouletteParty.Match
             var pc = LocalPlayer();
             if (pc == null) { HideBlueprint(); return; }
 
+            // 설치 성공 감지(서버 확정 = 내 보이는 구조물 수 증가) -> 다음 형태 재굴림.
+            CountMine(out int visNow, out _);
+            if (_lastVisibleMine >= 0 && visNow > _lastVisibleMine)
+            {
+                RollNextVisible();
+                if (_selected != StructureType.Invisible) _selected = _nextVisible;
+            }
+            _lastVisibleMine = visNow;
+
             var kb = Keyboard.current;
             if (kb != null)
             {
-                if (kb.digit1Key.wasPressedThisFrame) _selected = StructureType.Wall;
-                else if (kb.digit2Key.wasPressedThisFrame) _selected = StructureType.Cylinder;
-                else if (kb.digit3Key.wasPressedThisFrame) _selected = StructureType.Invisible;
+                // 형태는 랜덤으로 정해진다: [1] 보이는(이번 형태는 패널에 표시) / [2] 투명.
+                if (kb.digit1Key.wasPressedThisFrame) _selected = _nextVisible;
+                else if (kb.digit2Key.wasPressedThisFrame || kb.digit3Key.wasPressedThisFrame)
+                    _selected = StructureType.Invisible;
                 if (kb.rKey.wasPressedThisFrame) _yawStep = (_yawStep + 1) & 3;
 
                 // 설치 모드 토글. 공중 모드 진입 시 거리를 "현재 조준점까지"로 초기화해
@@ -327,8 +346,10 @@ namespace RouletteParty.Match
             GUILayout.Label("비행: WASD 수평 + 마우스 시선, Space 상승 / Shift 하강", _rich);
 
             GUILayout.Space(4);
-            GUILayout.Label($"종류  <b>[1]</b> 벽  <b>[2]</b> 원기둥  <b>[3]</b> 투명(안 보임)", _rich);
+            GUILayout.Label($"종류  <b>[1]</b> 보이는 (형태 랜덤)  <b>[2]</b> 투명(안 보임)", _rich);
             GUILayout.Label($"선택: <b>{TypeKorean(_selected)}</b>   회전 <b>[R]</b> ({_yawStep * 90}°)", _rich);
+            if (_selected != StructureType.Invisible)
+                GUILayout.Label($"이번 형태: <b>{TypeKorean(_nextVisible)}</b> (설치할 때마다 다시 굴려짐)", _rich);
             GUILayout.Label(_airMode
                 ? $"모드 <b>[Q]</b>: <b>공중</b> (거리 {_airDistance:0.#}m, 휠로 조절)"
                 : "모드 <b>[Q]</b>: <b>표면</b> (구조물 조준 시 그 위로 스냅)", _rich);
@@ -353,6 +374,13 @@ namespace RouletteParty.Match
             }
         }
 
+        // 다음 보이는 형태 굴림. 클라 로컬 랜덤이면 충분하다: 결과물은 서버가 스폰해 복제하므로
+        // 전 피어 일치가 필요 없고, 프리뷰(블루프린트)는 굴려진 형태와 1:1 로 일치한다.
+        private void RollNextVisible()
+        {
+            _nextVisible = VisiblePool[Random.Range(0, VisiblePool.Length)];
+        }
+
         private static string TypeKorean(StructureType t)
         {
             switch (t)
@@ -360,6 +388,8 @@ namespace RouletteParty.Match
                 case StructureType.Wall:      return "벽 (보이는)";
                 case StructureType.Cylinder:  return "원기둥 (보이는)";
                 case StructureType.Invisible: return "투명 (안 보이는)";
+                case StructureType.Tree:      return "나무 (보이는)";
+                case StructureType.Rock:      return "바위 (보이는)";
                 default:                      return "-";
             }
         }
