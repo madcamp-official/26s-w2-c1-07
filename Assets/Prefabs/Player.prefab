@@ -222,17 +222,6 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::RouletteParty.Net.PlayerGrab
   ShowTopMostFoldoutHeaderGroup: 1
-  _ledgeReach: 0.8
-  _grabMaxRiseSpeed: 0.5
-  _minAirTime: 0.12
-  _maxFacingAngle: 55
-  _hangBlendTime: 0.12
-  _ledgeMinAbove: 0.4
-  _ledgeMaxAbove: 2.2
-  _hangDepth: 1.35
-  _mantleDuration: 0.25
-  _mantleInset: 0.45
-  _regrabDelay: 0.3
   _grabRange: 1.7
   _grabAngle: 65
   _victimSpeedMult: 0.35

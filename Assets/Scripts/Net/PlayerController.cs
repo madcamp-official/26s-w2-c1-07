@@ -89,9 +89,6 @@ public class PlayerController : NetworkBehaviour
         }
     }
 
-    /// <summary>현재 수직 속도(소유자). 잡기(PlayerGrab)의 "떨어질 때만 잡기" 판정용.</summary>
-    public float VerticalVelocity => _verticalVelocity;
-
     public bool IsAiming { get; private set; }
     public Ray AimRay { get; private set; }
     public Vector3 AimPoint { get; private set; }
@@ -242,10 +239,9 @@ public class PlayerController : NetworkBehaviour
         _flying = false;
         if (aim) HandleMouseLook();
 
-        // 좌클릭 잡기(PlayerGrab): 매달림/맨틀 중엔 위치를 잡기 쪽이 소유하므로 통상 이동 생략.
-        // 커서가 풀려 있으면(UI 조작) 잡기 입력도 무시한다.
-        if (_grab != null && !_cursorFreeOverride && !SettingsManager.IsOpen && _grab.ClimbTick())
-            return;
+        // 좌클릭 플레이어 잡기(PlayerGrab). 커서가 풀려 있으면(UI 조작) 잡기 입력도 무시한다.
+        if (_grab != null && !_cursorFreeOverride && !SettingsManager.IsOpen)
+            _grab.ClimbTick();
 
         if (aim) HandleMovementAim();
         else     HandleMovementFollow();
@@ -585,18 +581,6 @@ public class PlayerController : NetworkBehaviour
             }
         }
         if (!found) AimPoint = r.origin + r.direction * aimRayDistance;
-    }
-
-    // ============================ 잡기(PlayerGrab) 훅 ============================
-    /// <summary>매달림 시작/낙하 재개 시 수직 속도 리셋(PlayerGrab 이 호출).</summary>
-    public void OnGrabHangStart() { _verticalVelocity = 0f; }
-
-    /// <summary>맨틀(올라서기) 완료: 순간 이동량을 낙하로 오인하지 않게 추적을 리셋(PlayerGrab 이 호출).</summary>
-    public void OnGrabMantleEnd()
-    {
-        _verticalVelocity = 0f;
-        _airApexY = transform.position.y;
-        _wasAirborne = false;
     }
 
     // ============================ 소유자 전용 순간이동(MatchManager RPC 가 호출) ============================
