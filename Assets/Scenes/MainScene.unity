@@ -166,6 +166,14 @@ MonoBehaviour:
   platformPrefabs:
   - {fileID: 3823038366554229154, guid: 171b8a476825aab4bbb06461301ba6c9, type: 3}
   - {fileID: -4043728930769492149, guid: fbf43295181306b4a80f88701719cb69, type: 3}
+  - {fileID: 898922820652318928, guid: 68c9aa6c5699b49458b6dbc9ded3a63a, type: 3}
+  - {fileID: 7944581271079417781, guid: 1088b89b800eafd40b023734dc475156, type: 3}
+  - {fileID: 3190709094933979470, guid: 5f91cd3b99cf11a47a8582da960b0fda, type: 3}
+  - {fileID: 1344945643014717943, guid: 860d2c64ff8859c4f91016245cb2dfd0, type: 3}
+  - {fileID: 5993744968319357790, guid: 250b7856a8266b048ad1de6ded3c5d89, type: 3}
+  - {fileID: 8208404571728248289, guid: 72e04527a6136a04db724916e8105c32, type: 3}
+  - {fileID: 153683816745719529, guid: 3bbd9dd0e5834a74f93cf00eec34081c, type: 3}
+  - {fileID: 556797735826849617, guid: 0b4fdb8fb686d0b4d993438c67ae7bd0, type: 3}
   fallbackPlatformSize: {x: 5, y: 0.5, z: 3}
   structureMaterials:
   - {fileID: 2100000, guid: ae14cd635a9d78a4fa84bf72d891d3a8, type: 2}
@@ -732,6 +740,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 23ff2782bd4e18541a8395871500e912, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::RouletteParty.Net.ConnectionService
+  _useRelay: 1
+  _relayMaxConnections: 7
   _defaultPort: 7777
 --- !u!1 &1809773975
 GameObject:
