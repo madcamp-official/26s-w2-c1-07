@@ -15,6 +15,7 @@ GameObject:
   - component: {fileID: 319737163021261679}
   - component: {fileID: 1665602267064330198}
   - component: {fileID: 2666885598947837447}
+  - component: {fileID: 8120870739816667610}
   m_Layer: 0
   m_Name: Player
   m_TagString: Untagged
@@ -194,7 +195,7 @@ MonoBehaviour:
   _animator: {fileID: 3719533065779521589}
   _speedSmoothing: 10
   _groundRayLength: 0.4
-  _teleportThreshold: 3
+  _maxPlausibleSpeed: 20
 --- !u!114 &2666885598947837447
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -208,6 +209,38 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::RouletteParty.Net.PlayerTint
   ShowTopMostFoldoutHeaderGroup: 1
+--- !u!114 &8120870739816667610
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 5450510477442867896}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 01f7061aad1d667489d824f5448e974e, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::RouletteParty.Net.PlayerGrab
+  ShowTopMostFoldoutHeaderGroup: 1
+  _ledgeReach: 0.95
+  _ledgeMinAbove: 0.4
+  _ledgeMaxAbove: 2.2
+  _hangDepth: 1.35
+  _mantleDuration: 0.25
+  _mantleInset: 0.45
+  _regrabDelay: 0.3
+  _grabRange: 1.7
+  _grabAngle: 65
+  _victimSpeedMult: 0.35
+  _grabberSpeedMult: 0.6
+  _grabMaxDuration: 2
+  _grabCooldown: 3
+  _serverRangeSlack: 1.2
+  Grabbed:
+    UpdateTraits:
+      MinSecondsBetweenUpdates: 0
+      MaxSecondsBetweenUpdates: 0
+    m_InternalValue: 0
 --- !u!1001 &7718498544982306788
 PrefabInstance:
   m_ObjectHideFlags: 0

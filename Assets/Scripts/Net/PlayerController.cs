@@ -103,6 +103,7 @@ public class PlayerController : NetworkBehaviour
     NetworkTransform _net;
     Camera _cam;
     Renderer[] _bodyRenderers;
+    PlayerGrab _grab;              // 좌클릭 잡기(렛지 매달림·플레이어 잡기), 없어도 동작
     float _verticalVelocity;
 
     // 마우스룩 상태
@@ -131,6 +132,7 @@ public class PlayerController : NetworkBehaviour
     {
         _cc  = GetComponent<CharacterController>();
         _net = GetComponent<NetworkTransform>();
+        _grab = GetComponent<PlayerGrab>();
         _bodyRenderers = GetComponentsInChildren<Renderer>(true);
 
         Dead.OnValueChanged += OnDeadChanged;
@@ -189,6 +191,8 @@ public class PlayerController : NetworkBehaviour
         {
             _lastPhase = phase;
             ResetLook();
+            // 등반 페이즈를 벗어나면 잡기 상태(매달림·플레이어 잡기)를 전면 취소한다.
+            if (_grab != null && phase != MatchPhase.Play) _grab.CancelAll();
         }
 
         // (L) 로비(대기방): LobbyUI 조작을 위해 커서를 풀고 이동/시선 입력을 잠근다(중력만 유지).
@@ -233,15 +237,15 @@ public class PlayerController : NetworkBehaviour
 
         // (A) 등반.
         _flying = false;
-        if (aim)
-        {
-            HandleMouseLook();
-            HandleMovementAim();
-        }
-        else
-        {
-            HandleMovementFollow();
-        }
+        if (aim) HandleMouseLook();
+
+        // 좌클릭 잡기(PlayerGrab): 매달림/맨틀 중엔 위치를 잡기 쪽이 소유하므로 통상 이동 생략.
+        // 커서가 풀려 있으면(UI 조작) 잡기 입력도 무시한다.
+        if (_grab != null && !_cursorFreeOverride && !SettingsManager.IsOpen && _grab.ClimbTick())
+            return;
+
+        if (aim) HandleMovementAim();
+        else     HandleMovementFollow();
         TrackFall();
         // 낙사/부활/배치는 MatchManager(호스트 권위)가 RPC 로 지시한다.
     }
@@ -333,6 +337,7 @@ public class PlayerController : NetworkBehaviour
     void ApplyMotion(Vector3 dir, bool jump)
     {
         if (_cc == null || !_cc.enabled) return;
+        if (_grab != null && jump && _grab.JumpBlocked) jump = false; // 붙잡힌 동안 점프 봉인
         if (_cc.isGrounded && _verticalVelocity < 0f)
             _verticalVelocity = -2f;
         if (jump && _cc.isGrounded)
@@ -342,7 +347,8 @@ public class PlayerController : NetworkBehaviour
         }
         _verticalVelocity += gravity * Time.deltaTime;
 
-        Vector3 velocity = dir * moveSpeed;
+        // 잡기 감속: 붙잡힘(피해자) x 잡는 중(리스크) 배율.
+        Vector3 velocity = dir * (moveSpeed * (_grab != null ? _grab.MoveSpeedMultiplier : 1f));
         velocity.y = _verticalVelocity;
         CollisionFlags flags = _cc.Move(velocity * Time.deltaTime);
 
@@ -576,6 +582,18 @@ public class PlayerController : NetworkBehaviour
             }
         }
         if (!found) AimPoint = r.origin + r.direction * aimRayDistance;
+    }
+
+    // ============================ 잡기(PlayerGrab) 훅 ============================
+    /// <summary>매달림 시작/낙하 재개 시 수직 속도 리셋(PlayerGrab 이 호출).</summary>
+    public void OnGrabHangStart() { _verticalVelocity = 0f; }
+
+    /// <summary>맨틀(올라서기) 완료: 순간 이동량을 낙하로 오인하지 않게 추적을 리셋(PlayerGrab 이 호출).</summary>
+    public void OnGrabMantleEnd()
+    {
+        _verticalVelocity = 0f;
+        _airApexY = transform.position.y;
+        _wasAirborne = false;
     }
 
     // ============================ 소유자 전용 순간이동(MatchManager RPC 가 호출) ============================
