@@ -1,5 +1,6 @@
 // GameHUD.cs
-// 코드로 전부 생성하는 표시 전용 HUD (프리팹/씬 배선 없음).
+// 표시 전용 HUD. 씬 배치: 전용 GameObject 에 컴포넌트로 추가한다(에디터 Add Component).
+// UI 요소(캔버스/텍스트)는 런타임에 코드로 생성한다 — 추후 uGUI 프리팹 교체 대상.
 // Unity 6000.5.3f1 / URP / com.unity.ugui 2.5.0 (레거시 UnityEngine.UI) / NGO 2.13.0.
 // TextMeshPro 미사용, 신규 Input System 전용(구 UnityEngine.Input 사용 금지 → 이 파일은 키 입력 없음).
 // 호스트와 순수 클라이언트 모두에서 안전하게 동작해야 함(서버 전용 API 접근 금지).
@@ -47,6 +48,7 @@ namespace RouletteParty.UI
         private Text _hlTitle;
         private Text _hlTrophy;
         private Text _hlTopic;
+        private Text _hlStats;   // 라운드 통계(최대 낙하·낚시왕·낚임왕·탈락 수)
         private RectTransform _hlRowsParent;
         private readonly List<Row> _hlRows = new List<Row>();
 
@@ -73,20 +75,6 @@ namespace RouletteParty.UI
             (a, b) => a.Score != b.Score ? b.Score.CompareTo(a.Score) : a.Id.CompareTo(b.Id);
         private static readonly System.Comparison<RoundResult> _byRankAsc =
             (a, b) => a.Rank.CompareTo(b.Rank);
-
-        // ===================================================================
-        // 자동 부트스트랩: 씬에 GameHUD 가 없으면 플레이 시작 시 자동 생성한다.
-        // → 에디터에서 오브젝트를 배치할 필요가 없다. 수동 배치해 두면 이 가드가 중복을 막는다.
-        //   끄고 싶으면 이 메서드(또는 [RuntimeInitializeOnLoadMethod] 특성)를 제거하면 된다.
-        // ===================================================================
-        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
-        private static void AutoBootstrap()
-        {
-            if (FindAnyObjectByType<GameHUD>() != null) return; // 이미 있으면(수동 배치 포함) 생성 안 함
-            var go = new GameObject("GameHUD (auto)");
-            go.AddComponent<GameHUD>();
-            DontDestroyOnLoad(go);
-        }
 
         // ===================================================================
         // 수명주기
@@ -158,7 +146,9 @@ namespace RouletteParty.UI
             scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
             scaler.referenceResolution = new Vector2(1920, 1080);
             scaler.screenMatchMode = CanvasScaler.ScreenMatchMode.MatchWidthOrHeight;
-            scaler.matchWidthOrHeight = 0.5f;
+            // 가로형 PC 게임 표준: 높이(1) 기준 매칭. 21:9 등 와이드 화면에서 UI 가 커지지 않고
+            // 가로 여백만 늘어난다(요소들은 앵커로 모서리/중앙에 붙어 있어 비율 차이를 흡수).
+            scaler.matchWidthOrHeight = 1f;
             // 표시 전용: GraphicRaycaster/EventSystem 불필요(투표·장애물은 별도 PrepClientUI가 담당).
 
             _canvasRT = _canvas.GetComponent<RectTransform>();
@@ -224,6 +214,10 @@ namespace RouletteParty.UI
             SetRect(_hlRowsParent, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0.5f, 1f),
                     new Vector2(500, 200), new Vector2(0, -170));
 
+            _hlStats = MakeText(_highlightRoot, "", 22, TextAnchor.UpperCenter, new Color(1f, 0.87f, 0.55f, 1f));
+            SetRect(_hlStats.rectTransform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0.5f, 1f),
+                    new Vector2(540, 130), new Vector2(0, -290));
+
             // --- 결과 루트(전체 화면) ---
             _resultRoot = MakeRect(_canvasRT, "ResultRoot");
             Stretch(_resultRoot);
@@ -272,6 +266,9 @@ namespace RouletteParty.UI
             var m = MatchManager.Instance;
             if (m == null || !m.IsSpawned) { SetIdle(cam); return; }
 
+            // 로비(대기방) 동안 HUD 는 전부 숨긴다(화면은 LobbyUI 대기방이 사용, 겹침 방지).
+            if (m.CurrentPhase == MatchPhase.Lobby) { SetIdle(cam); return; }
+
             // --- 플레이어 오브젝트 클라이언트 안전 열거 ---
             // NGO 2.13: SpawnManager.SpawnedObjectsList 는 클라이언트에서도 유효.
             // ConnectedClients* 는 순수 클라이언트에서 throw 하므로 절대 사용하지 않음.
@@ -309,7 +306,7 @@ namespace RouletteParty.UI
                 if (_players[i].OwnerClientId != localId) continue;
                 var pc = _players[i].GetComponent<PlayerController>();
                 if (pc != null) { localAiming = pc.IsAiming; localDead = pc.Dead.Value; }
-                localY = _players[i].transform.position.y;
+                localY = pc != null ? pc.FootY : _players[i].transform.position.y; // 발끝 기준(채점과 동일)
                 break;
             }
 
@@ -319,6 +316,7 @@ namespace RouletteParty.UI
             {
                 case MatchPhase.Play:     RenderPlay(m, localY, localDead); break;
                 case MatchPhase.Highlight:RenderHighlight(m);     break;
+                case MatchPhase.Intermission: RenderHighlight(m); break; // 다음 라운드 대기 중에도 직전 하이라이트 유지 표시
                 case MatchPhase.Result:   RenderResult(m);        break;
                 default: /* Lobby/Prep: 중앙 콘텐츠 없음 */ break;
             }
@@ -461,6 +459,26 @@ namespace RouletteParty.UI
             _roundResults.Sort(_byRankAsc);
             int show = Mathf.Min(3, _roundResults.Count);
 
+            // 라운드 통계(현재 라운드 것일 때만 표시. Round == 0 = 아직 집계 없음).
+            var st = m.RoundStats;
+            if (st.Round == m.Round)
+            {
+                string s = "";
+                if (st.BiggestFallVictim != RoundStats.None && st.BiggestFallHeight > 0f)
+                    s += $"최대 낙하  {PlayerPalette.NameFor(st.BiggestFallVictim)}  {st.BiggestFallHeight:0.0} m\n";
+                if (st.BestBaiter != RoundStats.None && st.BestBaiterCount > 0)
+                    s += $"낚시왕  {PlayerPalette.NameFor(st.BestBaiter)}  ({st.BestBaiterCount}회 낚음)\n";
+                if (st.MostBaited != RoundStats.None && st.MostBaitedCount > 0)
+                    s += $"낚임왕  {PlayerPalette.NameFor(st.MostBaited)}  ({st.MostBaitedCount}회 당함)\n";
+                if (st.DeathCount > 0)
+                    s += $"탈락  {st.DeathCount}명";
+                _hlStats.text = s;
+            }
+            else
+            {
+                _hlStats.text = "";
+            }
+
             EnsureRows(_hlRows, _hlRowsParent.transform, show);
             for (int i = 0; i < show; i++)
             {
@@ -543,11 +561,24 @@ namespace RouletteParty.UI
                     continue;
                 }
 
+                var np = _nameplates[i];
+
+                // 탈락자는 이름표 숨김: 본체 렌더러는 꺼지지만 오브젝트는 탈락 위치에 남으므로
+                // Dead 를 확인하지 않으면 이름표만 허공에 떠 있게 된다.
+                if (np.source != no)
+                {
+                    np.source = no;
+                    np.pc = no.GetComponent<RouletteParty.Net.PlayerController>();
+                }
+                if (np.pc != null && np.pc.Dead.Value)
+                {
+                    np.go.SetActive(false);
+                    continue;
+                }
+
                 ulong id = no.OwnerClientId;
                 Vector3 world = no.transform.position + Vector3.up * 2.2f;
                 Vector3 sp = cam.WorldToScreenPoint(world);
-
-                var np = _nameplates[i];
                 if (sp.z < 0f) // 카메라 뒤 → 숨김
                 {
                     np.go.SetActive(false);
@@ -685,6 +716,7 @@ namespace RouletteParty.UI
                 case MatchPhase.Prep:      return "준비";
                 case MatchPhase.Play:      return "플레이";
                 case MatchPhase.Highlight: return "하이라이트";
+                case MatchPhase.Intermission: return "대기 중";
                 case MatchPhase.Result:    return "결과";
                 default:                   return "";
             }
@@ -712,6 +744,10 @@ namespace RouletteParty.UI
             public GameObject go;
             public RectTransform rt;
             public Text text;
+            // Dead 판정용 컴포넌트 캐시. _players 순서가 바뀔 수 있으므로 어느 플레이어의
+            // 캐시인지(source)를 함께 저장하고, 다르면 갱신한다(매 프레임 GetComponent 회피).
+            public NetworkObject source;
+            public RouletteParty.Net.PlayerController pc;
         }
     }
 }

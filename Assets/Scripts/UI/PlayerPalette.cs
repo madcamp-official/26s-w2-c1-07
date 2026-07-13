@@ -3,10 +3,9 @@ using UnityEngine;
 namespace RouletteParty.UI
 {
     /// <summary>
-    /// 플레이어 색/이름을 clientId 로부터 결정론적으로 계산한다.
-    /// 모든 피어가 같은 clientId -> 같은 색/이름이므로 네트워크 동기화가 필요 없다.
-    /// HUD 스코어보드와 머리 위 이름표가 이 헬퍼를 공유해 항상 일치한다.
-    /// (커스텀 닉네임/색 선택은 아트 주간의 확장 과제 — 그때 PlayerIdentity 로 대체.)
+    /// 플레이어 색/이름의 단일 접근점. HUD 스코어보드·머리 위 이름표·대기방이 공유해 항상 일치한다.
+    ///  - 색: clientId 로 결정론 계산(모든 피어 동일 -> 동기화 불필요).
+    ///  - 이름: 대기방 닉네임(LobbyManager.Players, 전 피어 복제) 우선, 없으면 P{n} 폴백.
     /// </summary>
     public static class PlayerPalette
     {
@@ -25,6 +24,16 @@ namespace RouletteParty.UI
 
         public static Color ColorFor(ulong clientId) => Colors[(int)(clientId % (ulong)Colors.Length)];
 
-        public static string NameFor(ulong clientId) => $"P{clientId + 1}";
+        /// <summary>대기방에서 정한 닉네임(전 피어 복제)이 있으면 사용, 없으면 P{n} 폴백.</summary>
+        public static string NameFor(ulong clientId)
+        {
+            var lm = RouletteParty.Match.LobbyManager.Instance;
+            if (lm != null && lm.IsSpawned)
+            {
+                string n = lm.NameOf(clientId);
+                if (!string.IsNullOrEmpty(n)) return n;
+            }
+            return $"P{clientId + 1}";
+        }
     }
 }
