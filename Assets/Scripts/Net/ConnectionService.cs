@@ -164,7 +164,11 @@ namespace RouletteParty.Net
             if (UnityServices.State != ServicesInitializationState.Initialized)
             {
                 var options = new InitializationOptions();
-                try { options.SetProfile("p" + (System.Environment.ProcessId % 100000)); }
+                try
+                {
+                    int pid = System.Diagnostics.Process.GetCurrentProcess().Id;
+                    options.SetProfile("p" + (pid % 100000));
+                }
                 catch { /* 프로필 미지원 환경이면 기본 프로필 사용 */ }
                 await UnityServices.InitializeAsync(options);
             }
