@@ -146,6 +146,8 @@ public class ClimbMapGenerator : MonoBehaviour
     [SerializeField] private PlatformSegment bridgePiece;
     [Tooltip("회전 교차로 팔 조각(x 로 팔 길이에 맞춰 늘려 씀). 비우면 기본 도형 팔.")]
     [SerializeField] private PlatformSegment junctionArmPiece;
+    [Tooltip("휴게/진입/정상 풀 발판이 90도 회전(눕힘/세움)된 형태로 나올 확률.")]
+    [SerializeField, Range(0f, 1f)] private float tiltChance = 0.12f;
     [Tooltip("회전 교차로: 인접 레인 쌍마다 생성 확률.")]
     [SerializeField, Range(0f, 1f)] private float junctionChance = 0.6f;
     [Tooltip("회전 교차로: 십자 팔 반길이(m).")]
@@ -527,10 +529,14 @@ public class ClimbMapGenerator : MonoBehaviour
         return seg.ExitWorld;
     }
 
-    // 풀에서 1개(항상 정확히 1 드로우) 또는 슬래브 폴백. 동적(회전/이동) 조각은 정적 제외 + 시드 위상.
+    // 풀에서 1개(드로우 수 고정: 3) 또는 슬래브 폴백. 동적(회전/이동) 조각은 정적 제외 + 시드 위상.
+    // 낮은 확률(tiltChance)로 90도 회전(눕힘/세움)된 형태로 나온다 — 체인 앵커/콜라이더는
+    // 회전된 바운즈에서 다시 계산되므로 걷는 면 정합이 유지된다.
     PlatformSegment PoolOrSlab(System.Random rng, Transform parent, out bool isStatic)
     {
-        double roll = rng.NextDouble(); // 풀이 비어도 소비(소비 순서 고정)
+        double roll = rng.NextDouble();        // 풀이 비어도 소비(소비 순서 고정)
+        double tiltRoll = rng.NextDouble();
+        double variantRoll = rng.NextDouble();
         PlatformSegment prefab = PickPrefabByRoll(roll);
         if (prefab == null)
         {
@@ -538,9 +544,15 @@ public class ClimbMapGenerator : MonoBehaviour
             return Slab(parent, new Vector3(2.6f, 0.5f, 2.6f), "Rest");
         }
         var seg = Instantiate(prefab, parent);
+        if (tiltRoll < tiltChance)
+        {
+            int v = (int)(variantRoll * 4.0) & 3; // X±90 / Z±90 중 하나
+            Vector3 axis = (v & 2) == 0 ? Vector3.right : Vector3.forward;
+            seg.transform.rotation = Quaternion.AngleAxis((v & 1) == 0 ? 90f : -90f, axis);
+        }
         bool dynamic = false;
         foreach (var rot in seg.GetComponentsInChildren<RotatingPlatform>())
-        { rot.Initialize((float)(rng.NextDouble() * 360.0)); dynamic = true; }
+        { rot.Initialize((float)(rng.NextDouble() * 360.0)); dynamic = true; } // 회전 적용 후 위상 캡처
         foreach (var mov in seg.GetComponentsInChildren<MovingPlatform>())
         { mov.Initialize((float)rng.NextDouble()); dynamic = true; }
         isStatic = !dynamic;
@@ -619,6 +631,11 @@ public class ClimbMapGenerator : MonoBehaviour
                                ground, laneIndex, ref ordinal, ref footprint, ref made, restStatic);
             }
         }
+
+        // 단절(무너진 다리) 보증: 상승 예산이 강제 슬롯 전에 소진된 시드에서도
+        // 레인당 최소 1회의 설치 게이트가 성립해야 한다(다리 상승은 미미해 top 정규화 무영향).
+        if (bridges == 0)
+            SectionBridge(rng, laneRoot, ground, laneIndex, laneZ, ref cursor, ref ordinal, ref footprint, ref made);
 
         // 정상 발판: 입구를 정확히 targetRise + 0.5 에(전 레인 동일 top).
         var summit = PoolOrSlab(rng, laneRoot, out bool summitStatic);

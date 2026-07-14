@@ -501,7 +501,7 @@ namespace RouletteParty.Match
         /// yawStep = 90도 단위 회전(0~3). Invisible 타입 = 보이지 않는 구조물.
         /// </summary>
         [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Everyone)]
-        public void PlaceStructureServerRpc(Vector3 pos, byte yawStep, byte typeByte, RpcParams rpcParams = default)
+        public void PlaceStructureServerRpc(Vector3 pos, byte yawStep, byte pitchStep, byte rollStep, byte typeByte, RpcParams rpcParams = default)
         {
             ulong sender = rpcParams.Receive.SenderClientId;
             var type = (StructureType)typeByte;
@@ -523,10 +523,11 @@ namespace RouletteParty.Match
             if (prefab == null) { Debug.LogWarning($"[Match] structure prefab for {type} not assigned."); return; }
 
             // 프리팹 "바닥"이 조준점(pos)에 닿도록 피벗을 들어 올린 최종 위치.
+            // 회전(3축 90도 스텝)을 먼저 적용해야 회전된 렌더 바운즈로 바닥 오프셋이 나온다.
             // 클라 블루프린트(PrepClientUI)와 동일한 계산 -> 프리뷰 위치 = 실물 위치.
             GameObject go = Instantiate(prefab);
-            Vector3 finalPos = pos + Vector3.up * Structure.BottomOffset(go);
-            go.transform.SetPositionAndRotation(finalPos, Quaternion.Euler(0f, yawStep * 90f, 0f));
+            go.transform.rotation = Quaternion.Euler(pitchStep * 90f, yawStep * 90f, rollStep * 90f);
+            go.transform.position = pos + Vector3.up * Structure.BottomOffset(go);
 
             // 겹침 검사는 "플레이어 설치 구조물끼리"만. 접촉은 허용, 관통(_overlapTolerance 초과)만 거부
             // -> 구조물 위에 쌓기 가능. 최종 트랜스폼이 반영된 렌더 AABB 를 쓰므로 클라 예비검증과 결과가 같다.
