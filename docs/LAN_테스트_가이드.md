@@ -3,10 +3,16 @@
 같은 공유기(LAN)에 연결된 Windows PC 두 대로 방 생성 → 참가 → 대기방 → 게임 → 대기방 복귀를
 검증하는 절차. 방 코드/Relay 없이 **호스트의 사설 IPv4 + UDP 포트 직접 접속** 방식이다.
 
+> **참고:** 현재 기본 접속 방식은 **Unity Relay(참가 코드)** 라서 평상시엔 이 가이드가 필요 없다.
+> 이 가이드는 오프라인 시연·Relay 장애 대비용 **LAN 폴백** 검증 절차다. LAN 모드로 전환하려면
+> 빌드 전에 `Assets/Resources/NetworkRig.prefab` 의 `ConnectionService` 인스펙터에서
+> `Use Relay` 를 끈다(끄면 타이틀/대기방 UI 가 참가 코드 대신 IP:포트 입력·표시로 바뀐다).
+
 ## 1. 빌드 만들기
 
 1. Unity 에디터에서 `File > Build Settings`(또는 Build Profiles) 열기
-2. 씬 목록에 `Assets/Scenes/MainScene.unity` 하나만 체크되어 있는지 확인(현재 기본 상태)
+2. 씬 목록에 `Assets/Scenes/LobbyScene.unity` 와 `Assets/Scenes/MainScene.unity` 가 모두
+   체크되어 있는지 확인(LobbyScene 이 첫 씬)
 3. 플랫폼 **Windows** 선택 후 Build → 빌드 폴더 생성
 4. **빌드 폴더 전체**(exe + `_Data` 폴더 + `UnityPlayer.dll` 등)를 두 컴퓨터에 복사
    - 두 PC 의 빌드는 반드시 **같은 빌드**(같은 버전)여야 한다

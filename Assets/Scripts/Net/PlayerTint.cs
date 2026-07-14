@@ -5,8 +5,8 @@ using UnityEngine;
 using RouletteParty.UI; // PlayerPalette
 
 /// <summary>
-/// (선택) 플레이어 몸체를 소유 clientId 색으로 칠한다. 정식 캐릭터 아트가 들어오기 전
-/// 멀티플레이 테스트에서 서로를 한눈에 구분하기 위한 임시 장치이며, 이름표(GameHUD)와 색을 공유한다.
+/// 플레이어 몸체를 소유 clientId 색으로 칠한다. 서로를 한눈에 구분하는 플레이어 식별 장치로,
+/// 스틱맨 모델 머티리얼에 적용 중이며 이름표(GameHUD)와 색을 공유한다.
 ///
 /// 안전 설계:
 ///  - 색은 결정론적(PlayerPalette.ColorFor)이라 모든 클라가 같은 색을 그린다 → 네트워크 동기화 불필요.

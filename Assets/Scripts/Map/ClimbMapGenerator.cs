@@ -216,8 +216,9 @@ public class ClimbMapGenerator : MonoBehaviour
     [SerializeField] private Vector2 spinRise = new Vector2(0.4f, 0.6f);
 
     // ============================ 공개 API ============================
-    /// <summary>정상 높이. 임시 점수 로직(높이 비례)의 만점 기준 — 점수 개편 예정.
-    /// 맵 생성 전에는 설정 기반 추정치를 돌려준다(생성 후엔 실측: 가장 낮은 레인 정상).</summary>
+    /// <summary>정상 높이 = 점수 정규화·정상 도달 판정의 기준(전 피어 동일).
+    /// 구간 레인 모드에선 도착 청크 윗면, 레거시(useSectionLanes=false)에선 가장 낮은 레인 정상.
+    /// 맵 생성 전에는 설정 기반 추정치를 돌려준다.</summary>
     public float MapHeight => _built ? _topY : EstimatedTop();
 
     /// <summary>플레이어 스폰 기준점(시작 섬 중심, 윗면 y=0). MatchManager 가 이 주변에 스폰시킨다.</summary>

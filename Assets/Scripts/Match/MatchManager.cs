@@ -9,10 +9,11 @@ using RouletteParty.UI;  // ImguiScale (디버그 OnGUI 해상도 스케일링)
 namespace RouletteParty.Match
 {
     /// <summary>
-    /// 클라이밍 전환(docs/클라이밍_전환_명세서.md) 호스트 권위 매치 FSM.
+    /// 클라이밍 전환(docs/archive/클라이밍_전환_명세서.md) 호스트 권위 매치 FSM.
     /// 씬 배치 NetworkObject(서버 권위)에 부착. 서버 시작 시 자동 스폰.
     ///
-    ///   LOBBY -> [PREP -> PLAY -> HIGHLIGHT] x3 -> RESULT -> (LOBBY 로 루프)
+    ///   LOBBY -> [PREP -> PLAY -> HIGHLIGHT -> INTERMISSION] x3 -> RESULT -> (LOBBY 로 루프)
+    ///   (마지막 라운드는 INTERMISSION 대신 RESULT)
     ///
     /// 핵심 규칙:
     ///  (a) 매 라운드 전 PREP: 플레이어가 구조물 설치(라운드별 지급: 보임 3/2/1, 안보임 1/2/3).
@@ -23,8 +24,9 @@ namespace RouletteParty.Match
     ///      ① 공중 낙하 거리 >= _lethalAirFall -> 즉시 탈락(서버가 위치 샘플링으로 직접 추적,
     ///         시작 섬 밖 허공 추락도 이 규칙이 잡는다).
     ///      ② 낙하 후 착지, 낙하 거리 >= _lethalLandFall -> 탈락(소유자 착지 보고 + 서버 판정).
-    ///  (d) 점수: [임시 — 점수 개편 예정] 라운드 종료 시점 높이 / mapHeight x heightScoreMax
-    ///      + 순위 보너스. 3라운드 누적. 공식은 MatchScoring.RoundScore 한 곳에만 존재.
+    ///  (d) 점수: 7항목 합산(진행도·정상 도달 시간·청크 선착순·순위·안정성·투명 구조물 영향
+    ///      - 반복 탈락 감점, 하한 0). 라운드 중엔 사실만 수집하고 PLAY -> HIGHLIGHT 전환에서
+    ///      1회 계산. 3라운드 누적. 공식은 MatchScoring.RoundScore 한 곳에만 존재(설정 = _scoring).
     ///
     /// OWNER-AUTHORITATIVE MOVEMENT CONTRACT (기존 유지):
     ///  호스트는 플레이어 transform 을 READ 만 한다. 이동/배치는 소유 클라에게 RPC 로 위임.

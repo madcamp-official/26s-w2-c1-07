@@ -35,17 +35,19 @@
 
 ## 기획안
 
-> 📄 상세 기획서: [docs/기획서.md](docs/기획서.md)
+> 📄 초기 기획서(전환 전): [docs/archive/기획서.md](docs/archive/기획서.md) ·
+> 컨셉 전환 결정 기록(2026-07-11): [docs/archive/클라이밍_전환_명세서.md](docs/archive/클라이밍_전환_명세서.md)
+> — 현행 게임 규칙의 단일 출처는 아래 **구현 명세서**다.
 
-- **산출물 주제:** 다인원 수직 클라이밍 파티 게임 (Only Up! 모티브), 매 라운드 전 준비 페이즈에 플레이어들이 구조물(보이는/보이지 않는)을 설치하고, 그 구조물이 3라운드 내내 누적되는 랜덤 타워에서 더 높이 오르기를 경쟁하는 실시간 게임. 상세: [docs/클라이밍_전환_명세서.md](docs/클라이밍_전환_명세서.md)
+- **산출물 주제:** 다인원 수직 클라이밍 파티 게임 (Only Up! 모티브), 매 라운드 전 준비 페이즈에 플레이어들이 구조물(보이는/보이지 않는)을 설치하고, 그 구조물이 3라운드 내내 누적되는 랜덤 타워에서 더 높이 오르기를 경쟁하는 실시간 게임
 - **제작 목적:** MECCHA CHAMELEON, Fall Guys에서 착안한 "다수의 사람을 한 맵에 넣자"는 아이디어를 실시간 인터랙션 기술로 구현. 우스꽝스러운 장면(숏폼 적합)과 유저 제작 맵 기반의 반복 플레이 가치를 추구
 - **선택 옵션:** 실시간 인터랙션
 - **핵심 구현 요소:**
   - 다수 유저의 위치·상태 실시간 동기화 (랜덤 생성 수직 타워에서 동시 등반)
   - 전 페이즈 3인칭 마우스룩 조준 시점: 마우스=조준(화면 중앙 조준점), 커서 잠금 기반 조작
   - 매 라운드 전 준비 페이즈: 자유 비행 카메라로 구조물 설치. 보이는 구조물(전원 상시 공개)과 보이지 않는 구조물(준비 중 설치자에게만, 충돌 시 전원에게 일시 공개) 이원화, **설치물은 3라운드 누적**
-  - 은닉 체력(10)과 낙하 데미지(낙하高 5 이상): 체력은 비공개, 소진 시 그 라운드 탈락 + 생존자 관전
-  - 점수 = 라운드 종료 시점 높이 비례 + 순위 보너스, 3라운드 누적. 라운드마다 하이라이트 카드
+  - 낙하 탈락 2규칙(공중 낙하·착지 낙하, 서버 판정): 탈락 시 잠깐 관전 후 시작 섬에서 자동 부활
+  - 점수 = 7항목 합산(진행도·정상 도달 시간·청크 선착순·순위·안정성·투명 구조물 영향·반복 탈락 감점), 3라운드 누적. 라운드마다 하이라이트 카드
 - **사용 / 시연 시나리오:** 유저들이 입장 → 준비(구조물 설치) → 라운드 1 등반 → 하이라이트 → 준비(추가 설치, 이전 설치물 유지) → 라운드 2 → ... → 라운드 3 → 누적 점수로 최종 순위 발표. 라운드가 갈수록 보이지 않는 함정이 늘어나 심리전이 깊어진다
 - **팀원별 역할:**
 
@@ -55,18 +57,38 @@
 > 네트워킹·지형·매치·준비 페이즈·점수를 조기 완료 → 남은 일정을 아트·완성도에 집중하도록 재구성했다.
 >
 > **재편 2차(2026-07-11, 클라이밍 전환):** 게임 컨셉을 "주제 룰렛 + 수평 코스 레이스"에서
-> **Only Up 모티브 수직 클라이밍**(구조물 설치·3라운드 누적)으로 전면 전환([docs/클라이밍_전환_명세서.md](docs/클라이밍_전환_명세서.md)).
+> **Only Up 모티브 수직 클라이밍**(구조물 설치·3라운드 누적)으로 전면 전환([docs/archive/클라이밍_전환_명세서.md](docs/archive/클라이밍_전환_명세서.md)).
 > 룰렛·주제·모드 3종·캔디 코스는 폐기하고, 랜덤 타워·구조물 2종(보임/안보임)·은닉 체력·낙하 데미지·
-> 관전·높이 점수로 재구현했다. 이하 표는 전환을 반영해 갱신한 일정이다(Day 1~5는 완료 이력).
+> 관전·높이 점수로 재구현했다(은닉 체력·단순 높이 점수는 이후 낙하 탈락 2규칙·7항목 점수로 재개편).
+> 이하 표는 전환을 반영해 갱신한 일정이다(Day 1~5는 완료 이력).
 
 | 날짜 | 목표 | 상태 |
 |---|---|---|
 | Day 1 | 기획·셋업·웹 프로토로 설계 검증·Unity 전환 | ✅ 완료 |
 | Day 2~3 | (구 컨셉) **코어 전부**: NGO 접속·이동 동기화 + 지형 + 매치 FSM + 게임 모드 3종 + 사망/부활 + 준비 페이즈(장애물·투표·가중 룰렛) + 상세 점수 | ✅ 완료 |
 | Day 4~5 | (구 컨셉) **게임 UI 전체**(HUD·스코어보드·하이라이트 카드·최종 결과) + 이름표·플레이어 색 + 마우스룩 조준 시점 → **골든 패스 완주 가능한 플레이어블** | ✅ 완료 |
-| Day 6 | **클라이밍 전환 구현**: 랜덤 타워 맵(시드 결정론) + 구조물 설치(보임/안보임, 자유 비행 카메라) + 은닉 체력·낙하 데미지·관전 + 높이 점수 + 지면 24×24 확장 + 프로젝트 구조 실무 정합(Structure 리네임·폴더 재편·템플릿 잔재 제거) | ▶ 진행 |
-| Day 6 잔여 | 다인원 플레이테스트·밸런싱(페이즈 시간·낙하 데미지·구조물 지급량)·투명 구조물 심리전 검증 | ⬜ |
-| Day 7 | Windows 빌드·시연 영상·회고(KPT)·(여유 시 Unity Relay/Facepunch Steam 트랜스포트 연동) | ⬜ |
+| Day 6 | **클라이밍 전환 구현**: 랜덤 타워 맵(시드 결정론) + 구조물 설치(보임/안보임, 자유 비행 카메라) + 낙하 탈락·관전·자동 부활 + 점수 개편(7항목) + 씬 분리(로비/게임) + Unity Relay 참가 코드 + UCH 스타일 UI 재스킨 + 프로젝트 구조 실무 정합(Structure 리네임·폴더 재편) | ✅ 완료 |
+| Day 6 잔여 | 다인원 플레이테스트·밸런싱(페이즈 시간·낙하 탈락 임계·구조물 지급량)·투명 구조물 심리전 검증 | ⬜ |
+| Day 7 | Windows 빌드·시연 영상·회고(KPT)·(여유 시 Facepunch Steam 트랜스포트 연동) | ⬜ |
+
+---
+
+## 문서 안내
+
+현행 문서는 이 README(구현 명세서·아키텍처·실행 방법)와 운영 가이드 하나로 단일화했다.
+과정에서 만든 기획·제안·전환 문서는 삭제하지 않고 `docs/archive/` 에 결정 기록으로 보존한다
+(각 문서 상단에 상태와 현행 문서 위치를 표기).
+
+| 문서 | 상태 | 내용 |
+|---|---|---|
+| README.md (이 문서) | **현행** | 게임 규칙·구현 명세·아키텍처·실행 방법의 단일 출처 |
+| [docs/LAN_테스트_가이드.md](docs/LAN_테스트_가이드.md) | **현행** | LAN 직접 IP 접속 폴백의 두 PC 수동 테스트 절차 |
+| [docs/archive/기획서.md](docs/archive/기획서.md) | 아카이브 | 최초 기획(주제 룰렛 파티) — 전환으로 핵심 루프 폐기 |
+| [docs/archive/클라이밍_전환_명세서.md](docs/archive/클라이밍_전환_명세서.md) | 아카이브 | 2026-07-11 클라이밍 컨셉 전환의 결정 기록(폐기/승계 목록) |
+| [docs/archive/점수_시스템_개편안.md](docs/archive/점수_시스템_개편안.md) | 아카이브 | 7항목 점수 개편 요구사항 — 구현 완료, 현행 수치는 4절 |
+| [docs/archive/조준_시점_명세서.md](docs/archive/조준_시점_명세서.md) | 아카이브 | 마우스룩 조준 시점 기능 명세 — 구현 완료 |
+| [docs/archive/완성도_강화_계획.md](docs/archive/완성도_강화_계획.md) | 아카이브 | 구 컨셉 기준 완성도 계획 — 유효 항목은 반영 완료 |
+| [docs/archive/개발가이드.md](docs/archive/개발가이드.md) | 아카이브 | Day 6 시점(구 컨셉) 작업 가이드 |
 
 ---
 
@@ -74,15 +96,15 @@
 
 이 문서는 **Steam 출시를 목표로 Unity 엔진(Netcode for GameObjects)** 기준으로 작성한 구현 명세서다. 우선순위는 **필수**(출시 MVP 코어) / **권장**(완성도) / **선택**(확장)으로 표기한다.
 
-> **컨셉 전환 노트(2026-07-11):** 게임 설계가 "주제 룰렛 파티"에서 **Only Up 모티브 수직 클라이밍**(구조물 설치·누적)으로 전면 전환됐다. 이 명세서는 전환 후 기준이며, 게임 규칙의 단일 상세 문서는 [docs/클라이밍_전환_명세서.md](docs/클라이밍_전환_명세서.md)다. [docs/기획서.md](docs/기획서.md)의 룰렛·주제·모드 부분은 무효.
+> **컨셉 전환 노트(2026-07-11):** 게임 설계가 "주제 룰렛 파티"에서 **Only Up 모티브 수직 클라이밍**(구조물 설치·누적)으로 전면 전환됐다. **이 구현 명세서가 전환 이후 갱신을 거친 현행 게임 규칙의 단일 출처**이며, 전환 당시의 결정 기록과 폐기/승계 목록은 [docs/archive/클라이밍_전환_명세서.md](docs/archive/클라이밍_전환_명세서.md), 전환 전 기획은 [docs/archive/기획서.md](docs/archive/기획서.md)에 보존돼 있다.
 
-> **엔진 전환 노트:** `packages/` 의 웹(Three.js + Node/Socket.IO) 코드는 설계·룰을 빠르게 검증한 1차 개념 검증 프로토타입이며, 프로덕션 빌드는 Unity 로 진행한다. 당시 검증한 규칙 중 룰렛·주제·수평 코스 관련 규칙은 클라이밍 전환으로 폐기됐고, **3라운드 누적·준비 페이즈 설치·호스트 권위** 같은 구조적 골격만 승계됐다.
+> **엔진 전환 노트:** `web-prototype/` 의 웹(Three.js + Node/Socket.IO) 코드는 설계·룰을 빠르게 검증한 1차 개념 검증 프로토타입이며, 프로덕션 빌드는 Unity 로 진행한다. 당시 검증한 규칙 중 룰렛·주제·수평 코스 관련 규칙은 클라이밍 전환으로 폐기됐고, **3라운드 누적·준비 페이즈 설치·호스트 권위** 같은 구조적 골격만 승계됐다.
 
 ### 1. 네트워킹 & 상태 동기화 (Netcode for GameObjects)
 
 | 구현 요소 | 설명 | 우선순위 |
 |---|---|---|
-| NGO 호스트 권위 모델 | Netcode for GameObjects 채택. 한 명이 **호스트(서버+클라 겸용)**가 되어 게임 원장(페이즈·점수·체력·사망 판정·구조물 설치 검증)의 단일 권위를 갖는다. 웹 프로토타입의 '서버 권위'를 호스트가 대신한다. | 필수 |
+| NGO 호스트 권위 모델 | Netcode for GameObjects 채택. 한 명이 **호스트(서버+클라 겸용)**가 되어 게임 원장(페이즈·점수·탈락 판정·구조물 설치 검증)의 단일 권위를 갖는다. 웹 프로토타입의 '서버 권위'를 호스트가 대신한다. | 필수 |
 | 전송 계층 | **Unity Relay(참가 코드) 기본**: 호스트가 방을 만들면 6자리 참가 코드가 발급되고, 참가자는 코드만으로 접속한다. 양쪽 모두 아웃바운드 연결이라 서로 다른 네트워크(캠퍼스 망 격리·NAT·방화벽)에서도 연결된다. UGS 익명 로그인 자동 처리. `ConnectionService._useRelay` 를 끄면 기존 LAN 직접 IP:포트 접속으로 폴백(포트 자동 탐색 유지). Steam(Facepunch) 릴레이는 출시 단계 작업. | 필수(구현됨) / Steam 은 선택(출시) |
 | 이동 동기화 (ClientNetworkTransform) | 각 플레이어 캐릭터는 소유 클라가 로컬 이동하고 `ClientNetworkTransform`(클라 권위 + 내장 보간)으로 위치를 복제. 호스트는 재시뮬 없이 중계·검증. 웹의 '클라 권위 릴레이'와 동일 철학. | 필수 |
 | 상태 = NetworkVariable / RPC | 페이즈·라운드·타이머·승자·맵 시드는 `NetworkVariable<T>`(변경 시 자동 동기화), 일회성 이벤트(텔레포트·탈락 통보)는 대상 지정 `Rpc`, 클라 요청(구조물 설치·낙하 보고·충돌 공개)은 `ServerRpc`, 라운드 결과 목록은 `NetworkList<T>`. | 필수 |
@@ -101,19 +123,19 @@
 | 구조물 2종(보임/안보임) | 보이는 구조물(형태 4종: 벽·원기둥·나무·바위): 생성 후 모든 페이즈에서 전원에게 보임. **형태는 PREP 시작 시 지급량 전체를 미리 굴려 배치 큐로 확정**(PrepClientUI 가 클라 로컬로 굴림 — 결과물은 서버 스폰·복제라 전 피어 일치 불필요, 블루프린트 프리뷰는 큐의 선택 형태와 1:1). 보이지 않는 구조물: PREP 에는 설치자에게만(반투명), 그 외 페이즈엔 아무에게도 안 보임, 플레이어 충돌 시 `revealDuration`(2초) 동안 전원 공개. 콜라이더는 항상 전원 동일(공정). | 필수 |
 | 라운드별 지급 개수 | R1 전: 보임 3 + 안보임 1, R2 전: 보임 2 + 안보임 2, R3 전: 보임 1 + 안보임 3 (시리얼라이즈 배열, 이월 없음). | 필수 |
 | 설치물 누적 | 설치한 구조물은 라운드 사이에 지우지 않고 3라운드 내내 누적(핵심 룰). 매치 종료 시에만 전체 despawn. | 필수 |
-| 배치 프리뷰 | 조준점에 반투명 고스트 + 로컬 예비검증으로 초록/빨강 표시, R 키 90도 회전. | 권장 |
+| 배치 프리뷰 | 조준점에 반투명 블루프린트(실물 프리팹 복제) + 로컬 예비검증으로 초록/빨강 표시, [R]/[T]/[G] 3축 90도 회전 반영. | 권장(구현됨) |
 
 ### 3. 라운드 시스템 (클라이밍 단일 모드)
 
 | 구현 요소 | 설명 | 우선순위 |
 |---|---|---|
 | 매치 상태머신 (NetworkBehaviour) | 호스트의 `MatchManager : NetworkBehaviour` 가 FSM(LOBBY → [PREP → PLAY → HIGHLIGHT → INTERMISSION] ×3, 마지막 라운드는 INTERMISSION 대신 RESULT) 구동. 룰렛/주제 없음. `NetworkVariable<Phase>` + 종료 타임스탬프로 전 클라 동기화. | 필수 |
-| 랜덤 타워 맵 | 6×6×50 볼륨을 높이 75등분, 슬라이스마다 보이는 구조물 2개를 겹치지 않게 랜덤 배치(총 150). 호스트 시드 1개를 `NetworkVariable` 복제 → 전 피어 결정론적 로컬 생성. 바닥 6×6 + 투명 경계벽. | 필수 |
-| 은닉 체력·낙하 데미지 | 라운드 시작 체력 10(서버 전용, UI 비공개). 낙하高 5 이상 착지 시 소유자가 `ReportFallServerRpc` 보고 → 서버가 차감(기준 2 + 초과 m 당 1.5). | 필수 |
+| 랜덤 타워 맵 | 호스트 시드 1개를 `NetworkVariable` 복제 → 전 피어 결정론적 로컬 생성(NetworkObject 스폰 없음, late-join 자동 대응). 시작 섬 → 구간 기반 굽이 레인(청크 5개) → 도착 청크 합류 구조 — 상세는 6절 "맵" 행. 초기 설계(6×6×50 볼륨 슬라이스 살포)는 "길이 보이는 Only Up 스타일"을 위해 레인 방식으로 개편. | 필수 |
+| 낙하 탈락 2규칙 (체력 시스템 폐지) | ① 공중 낙하: 낙하 거리(최고점 - 현재 y)가 `_lethalAirFall`(15) 이상이면 즉시 탈락 — 서버가 위치 샘플링으로 직접 추적. ② 착지 낙하: `_lethalLandFall`(7) 이상 낙하한 채 착지하면 탈락 — 접지는 소유자만 정확히 알므로 소유자가 `ReportFallServerRpc` 보고 후 서버 판정. 초기 설계의 은닉 체력(10)·낙하 데미지는 시작 섬 밖 전체가 낭떠러지가 되면서 폐지. | 필수 |
 | 낙하 탈락/자동 부활 | 낙하 탈락(공중 낙하·착지 낙하 규칙) 시 잠깐 관전(입력 잠금, 본체 렌더·콜라이더 off, 좌클릭 대상 순환) 후 `_respawnDelay`(1.5초) 뒤 시작 섬에서 자동 부활한다. 페널티 = 등반 진행 손실(점수는 종료 시점 높이). 부활 텔레포트는 서버 낙하 추적 기준점을 리셋해 재탈락으로 오인되지 않는다. 전멸 조기 종료 규칙은 폐지(탈락이 일시 상태이므로). | 필수 |
-| 라운드 종료 조건 | 타이머 만료(기본 180초) / 전원 사망 / 첫 정상(y≥50) 도달 후 유예(15초). | 필수 |
+| 라운드 종료 조건 | 타이머 만료(기본 180초, 대기방에서 호스트 조절) / 첫 정상(도착 청크) 도달 후 잔여 타이머를 `finishGrace`(15초)로 단축. 전원 사망 조기 종료는 자동 부활 도입으로 폐지. | 필수 |
 
-### 4. 점수 시스템 (개편: 7항목 합산, 점수_시스템_개편안.md 반영)
+### 4. 점수 시스템 (개편: 7항목 합산, [docs/archive/점수_시스템_개편안.md](docs/archive/점수_시스템_개편안.md) 반영)
 
 라운드 점수 = **진행도 + 정상 도달 시간 + 청크 선착순 + 순위 + 안정성 + 투명 구조물 영향 - 반복 탈락 감점** (하한 0). 실시간 계산/동기화 없음: 라운드 중 호스트가 사실만 수집(`PlayerRuntime`/`MatchStatsTracker`)하고 `PLAY → HIGHLIGHT` 전환에서 순수 함수 `MatchScoring.RoundScore()` 1회로 계산(설정·공식은 `ScoringConfig`/`MatchScoring.cs` 단일 지점, 전부 인스펙터 조절). 복제는 기존 `RoundResult`(총점) 와이어 포맷 그대로, 항목별 내역은 호스트 콘솔 로그.
 
@@ -158,7 +180,7 @@
 |---|---|---|
 | Unity 6 LTS + NGO | Unity 6 LTS(6000.x) + `com.unity.netcode.gameobjects`. 언어 C#. | 필수 |
 | Steamworks 연동 | Facepunch.Steamworks(App ID·로비·친구·업적) + Facepunch Transport. 초기엔 개발용 App ID 480(Spacewar)로 테스트. | 선택(출시 단계) |
-| 프로젝트 구조 | 단일 Unity 프로젝트. `Assets/Scripts/{Map, Match, Net, UI}` (네임스페이스 `RouletteParty.{Map, Match, Net, UI}` 로 통일). asmdef 어셈블리 분리는 규모 증가 시 도입. | 필수 |
+| 프로젝트 구조 | 단일 Unity 프로젝트. `Assets/Scripts/{Core, Net, Match, Map, UI, Audio}` (네임스페이스 `RouletteParty.*` 로 통일). asmdef 어셈블리 분리는 규모 증가 시 도입. | 필수 |
 | 버전관리 | Git, Unity `.gitignore`, `.meta` 커밋 규칙. 대용량 에셋 팩은 LFS 대신 **선별 + 텍스처 축소 후 커밋**(가구 팩 1.7GB→40MB 사례). | 필수 |
 | 빌드 & 출시 | Windows 빌드 → Steamworks 파트너 depot 업로드. Steam Direct(앱 수수료 $100·30일 대기·심사), 상점 페이지·Coming Soon. | 필수 |
 | 전용 서버 빌드 | 헤드리스 리눅스 서버 빌드(KCLOUD/Multiplay), 대규모 확장 시. | 선택 |
@@ -177,7 +199,7 @@ NGO 호스트 권위 + Steam P2P/릴레이 기준 **MVP 동시 접속은 8~16명
 |---|---|---|
 | 엔진 | Unity 6 LTS (C#) | 스팀 배포 검증된 파이프라인, 에셋·물리·에디터 |
 | 네트워킹 | Netcode for GameObjects (호스트 권위) | Unity 네이티브, 서버 권위 파티 게임에 적합, 우리 설계와 동형 |
-| 전송 | UnityTransport(현행) → Unity Relay(데모) → Facepunch/Steam(출시) | 단계적 전환, `ApplyConnectionData()` 한 곳만 교체 |
+| 전송 | Unity Relay(참가 코드) 기본 + LAN 직접 IP 폴백 → Facepunch/Steam(출시) | NAT 우회로 이종 네트워크 접속, 교체 지점은 `ConnectionService` 한 곳 |
 | 물리·이동 | CharacterController + Unity Physics | 플랫포머 이동에 충분, 콜라이더 공유 |
 | 카메라·UI | 커스텀 마우스룩 카메라 + uGUI(코드 생성 HUD) | 조준 시점 요구사항 직접 구현·프리팹 없는 HUD |
 | 버전관리 | Git (대용량 에셋은 선별·축소 후 커밋) | 무료 플랜 LFS 한도 회피, 클론만으로 실행 가능 유지 |
@@ -187,16 +209,16 @@ NGO 호스트 권위 + Steam P2P/릴레이 기준 **MVP 동시 접속은 8~16명
 
 ## 아키텍처
 
-**Unity + Netcode for GameObjects 호스트 권위** 구조. 한 명이 호스트(서버 겸용)로 게임 원장을 소유하고, 나머지가 접속한다. 전송 계층은 현재 UnityTransport(IP 직접)이며, 데모용 Unity Relay → 출시용 Steam 릴레이로 단계 전환한다(`ApplyConnectionData()` 한 곳만 교체).
+**Unity + Netcode for GameObjects 호스트 권위** 구조. 한 명이 호스트(서버 겸용)로 게임 원장을 소유하고, 나머지가 접속한다. 전송 계층은 **Unity Relay(참가 코드) 기본**이며, `ConnectionService._useRelay` 를 끄면 LAN 직접 IP 접속으로 폴백한다. 출시 단계에 Steam(Facepunch) 릴레이로 전환한다(교체 지점은 `ConnectionService` 한 곳).
 
 ```
  [Unity 클라이언트 x N]                          [호스트 (서버+클라 겸용)]
   로컬 이동·렌더·입력       --ServerRpc-->         MatchManager (NetworkBehaviour)
-  (맵·구조물·캐릭터)        <-NetworkVariable/RPC-  페이즈·점수·체력·사망 판정 (권위)
+  (맵·구조물·캐릭터)        <-NetworkVariable/RPC-  페이즈·점수·탈락 판정 (권위)
   UI (준비/HUD/결과)        <-NetworkTransform---   NetworkObject 복제 (플레이어·구조물)
         |                                                  |
-        +--- UnityTransport (IP 직접, 현행) ---------------+
-             향후: Unity Relay(데모) → Steam 릴레이(출시)
+        +--- UnityTransport + Unity Relay (참가 코드, 기본) -+
+             폴백: LAN 직접 IP · 출시 단계: Steam 릴레이
 ```
 
 - 호스트가 단일 권위. `NetworkVariable`(자동 동기화 상태) + `ServerRpc`/`ClientRpc`(요청·이벤트) + `ClientNetworkTransform`(이동)으로 구성.
@@ -204,11 +226,13 @@ NGO 호스트 권위 + Steam P2P/릴레이 기준 **MVP 동시 접속은 8~16명
 
 **프로젝트 구조** (단일 Unity 프로젝트)
 
-- `Assets/Scripts/Net`: NGO 부트스트랩·트랜스포트·플레이어 컨트롤러(이동/비행/관전)·색상
-- `Assets/Scripts/Match`: 매치 FSM(`MatchManager`)·구조물(`Structure`)·준비 페이즈 설치 UI
+- `Assets/Scenes`: `LobbyScene`(타이틀·대기방) / `MainScene`(게임)
+- `Assets/Scripts/Net`: 접속 창구(`ConnectionService`, Relay/LAN)·플레이어 컨트롤러(이동/비행/관전)·색상·애니메이션
+- `Assets/Scripts/Match`: 매치 FSM(`MatchManager`)·로비(`LobbyManager`)·점수(`MatchScoring`)·구조물(`Structure`)·준비 페이즈 설치 UI
 - `Assets/Scripts/Map`: 랜덤 타워 생성(`ClimbMapGenerator`, 시드 결정론)
-- `Assets/Scripts/UI`: 코드 생성 HUD·플레이어 팔레트
-- (참고) `packages/`: 초기 웹 개념검증 프로토타입 (설계 검증용, 프로덕션 아님)
+- `Assets/Scripts/UI`: 코드 생성 HUD·로비 UI·공용 스타일 키트(`UiKit`)·플레이어 팔레트
+- `Assets/Scripts/Core` / `Audio`: 전역 부트스트랩(`SystemsBootstrap`)·설정(F1)·오디오
+- (참고) `web-prototype/`: 초기 웹 개념검증 프로토타입 (설계 검증용, 프로덕션 아님)
 
 ---
 
@@ -218,17 +242,17 @@ NGO 호스트 권위 + Steam P2P/릴레이 기준 **MVP 동시 접속은 8~16명
 
 ### 화면 / 인터페이스 설계
 
-페이즈 구동 단일 화면(3D 씬 위 UI 오버레이, 전 페이즈 마우스룩 조준 시점·커서 잠금). 로비(접속) → 준비(자유 비행 카메라, 숫자키 1/2 보이는 구조물·3 보이지 않는 구조물 선택, 조준점 좌클릭 설치, R 회전, 종류별 잔여 개수 표시) → 플레이(상단 라운드·타이머 배너, 현재 높이 표시, 조준점, 탈락 시 "관전 중" 배너) → 하이라이트(라운드 우승자·Top3 카드) → 결과(전체 화면 누적 최종 순위). 우상단에 누적 점수판 상시 표시, Esc 로 커서 잠금 해제. 체력은 어디에도 표시하지 않음(비공개 정보).
+씬 2개 구성. **LobbyScene**(자유 커서): 타이틀(닉네임) → 방 만들기(참가 코드 발급)/방 참가(코드 입력) → 대기방(참가자 목록·준비·페이즈 시간 설정·게임 시작). **MainScene**(마우스룩 조준 시점·커서 잠금, 3D 씬 위 UI 오버레이): 준비(자유 비행 카메라, 좌상단 슬롯 바 배치 큐 — [Alt] 전환·[1]/[2] 점프, [R]/[T]/[G] 3축 회전, 조준점 좌클릭 설치) → 플레이(기울어진 페이즈 컬러 배너·라운드·타이머, 현재 높이, 조준점, 탈락 시 관전 배너 후 자동 부활) → 하이라이트(라운드 우승자·Top3 카드) → 결과(누적 최종 순위) → 대기방 자동 복귀. 우상단 누적 점수판 상시 표시, [F1] 설정/설명 탭, [Esc] 커서 잠금 해제.
 
 ### 데이터 구조
 
 라이브 상태는 호스트가 소유하고 NGO 로 동기화한다.
 
-- 플레이어: `NetworkObject` + `ClientNetworkTransform`(위치). 체력(HP)은 서버 전용(복제·표시 안 함)
-- 구조물: `NetworkObject` 프리팹 `{ type(WALL|CYLINDER), ownerId, isInvisible, revealUntil }` 3라운드 누적
-- 맵: `NetworkVariable<int> MapSeed` 1개(전 피어 결정론적 로컬 생성, 6×6×50 / 75슬라이스 / 슬라이스당 2개)
-- 매치: `NetworkVariable<Phase>`(LOBBY|PREP|PLAY|HIGHLIGHT|RESULT), `round(1~3)`
-- 점수: 라운드당 종료 시점 높이/50 × 700 + 순위 보너스(300/200/100), 3라운드 누적. `NetworkList<RoundResult>`
+- 플레이어: `NetworkObject` + `ClientNetworkTransform`(위치). 낙하 추적 상태(ApexY 등)·탈락 위치·라운드 통계는 서버 전용(복제 안 함)
+- 구조물: `NetworkObject` 프리팹 `{ type(보이는 형태 4종 | 투명), ownerId, isInvisible, revealUntil }` 3라운드 누적
+- 맵: `NetworkVariable<int> MapSeed` 1개(전 피어 결정론적 로컬 생성 — 시작 섬 + 구간 기반 굽이 레인 + 도착 청크)
+- 매치: `NetworkVariable<Phase>`(LOBBY|PREP|PLAY|HIGHLIGHT|INTERMISSION|RESULT), `round(1~3)` + 로비 `NetworkList<LobbyPlayerState>`(닉네임·준비)
+- 점수: 라운드당 7항목 합산(4절 참조, 공식은 `MatchScoring.RoundScore` 단일 지점), 3라운드 누적. `NetworkList<RoundResult>`(총점 와이어 포맷)
 
 ### 네트워크 계약 (NGO)
 
@@ -236,8 +260,8 @@ NGO 호스트 권위 + Steam P2P/릴레이 기준 **MVP 동시 접속은 8~16명
 
 | 종류 | 이름 | 방향 | 설명 |
 |---|---|---|---|
-| ServerRpc | `PlaceStructureServerRpc(pos,yaw,type,invisible)` | C→H | 구조물 설치 요청(호스트가 검증 후 스폰) |
-| ServerRpc | `ReportFallServerRpc(fallHeight)` | C→H | 착지 낙하高 보고(서버가 은닉 체력 차감·사망 판정) |
+| ServerRpc | `PlaceStructureServerRpc(pos,yaw,pitch,roll,type)` | C→H | 구조물 설치 요청(호스트가 검증 후 스폰, 3축 90도 스텝 회전) |
+| ServerRpc | `ReportFallServerRpc(fallHeight)` | C→H | 착지 낙하高 보고(서버가 낙하 탈락 규칙 ② 판정 + 통계 기록) |
 | ServerRpc | `RevealStructureServerRpc(ref)` | C→H | 보이지 않는 구조물과의 충돌 보고(전원 일시 공개) |
 | Rpc(Single) | `TeleportPlayerRpc(pos)` | H→소유 클라 | 라운드 시작 바닥 배치(소유자가 스스로 텔레포트) |
 | Rpc(Single) | `EliminatedRpc()` | H→소유 클라 | 탈락 통보(입력 잠금 + 관전 전환) |
@@ -248,15 +272,15 @@ NGO 호스트 권위 + Steam P2P/릴레이 기준 **MVP 동시 접속은 8~16명
 
 (C=클라이언트, H=호스트)
 
-체력은 서버 전용 상태로 복제하지 않는다(플레이어 비공개 정보). 구조물 가시성은 복제된 `IsInvisible/RevealUntil` 과 현재 페이즈로 각 클라가 로컬 판정하며, 콜라이더는 항상 전원 동일하다(물리 공정성). 상세 규칙·시리얼라이즈 필드 목록은 [docs/클라이밍_전환_명세서.md](docs/클라이밍_전환_명세서.md).
+낙하 추적 상태·탈락 위치·항목별 점수 내역은 서버 전용으로만 존재하며 복제하지 않는다. 구조물 가시성은 복제된 `IsInvisible/RevealUntil` 과 현재 페이즈로 각 클라가 로컬 판정하며, 콜라이더는 항상 전원 동일하다(물리 공정성). 가시성·설치 검증 상세 규칙은 위 구현 명세서 2절 참조.
 
 ---
 
 ## 산출물 및 실행 방법
 
 - **산출물 설명:** Unity 기반 실시간 멀티플레이어 수직 클라이밍 파티 게임(Steam 출시 목표, 게임명은 컨셉 전환에 따라 재선정 예정). 초기 웹 프로토타입으로 설계·룰 검증 후 Unity 로 프로덕션, 이후 클라이밍 컨셉으로 전환.
-- **실행 환경:** Unity 6 LTS(6000.x), Windows 빌드. 멀티플레이는 IP 직접 접속(UnityTransport, 같은 네트워크 기준). 원격 데모용 Unity Relay 는 완성도 강화 계획 5절 참조.
-- **실행 방법:** Unity Hub 로 프로젝트 열기 → NGO·Facepunch 패키지 설치 → 에디터 Play 로 호스트 시작, 친구 초대 또는 빌드 다중 실행으로 접속.
+- **실행 환경:** Unity 6 LTS(6000.x), Windows 빌드. 멀티플레이는 **Unity Relay 참가 코드 접속이 기본**(서로 다른 네트워크에서도 연결, UGS 익명 로그인 자동). LAN 직접 IP 접속 폴백은 [docs/LAN_테스트_가이드.md](docs/LAN_테스트_가이드.md).
+- **실행 방법:** 아래 "실행 방법" 참조(타이틀 → 방 만들기/참가 코드 → 대기방 → 게임 시작).
 - **시연 영상 / 이미지:** (선택)
 
 ### 실행 방법
@@ -264,15 +288,16 @@ NGO 호스트 권위 + Steam P2P/릴레이 기준 **MVP 동시 접속은 8~16명
 ```text
 # Unity 프로젝트 (프로덕션)
 1. Unity Hub 에서 Unity 6 LTS(6000.x) 설치 후 프로젝트 열기 (NGO 등 패키지는 manifest 로 자동 설치)
-2. Play → 좌상단 [Host] 버튼으로 호스트 시작
-   (기본 포트 7777 이 사용 중이면 자동으로 다음 빈 포트를 찾아 호스팅하고 화면에 "호스팅 포트"로 표시)
-3. 다른 인스턴스(Multiplayer Play Mode 가상 플레이어 또는 빌드 실행)에서 호스트 IP·포트 입력 후 [Client]
-   (같은 PC 는 127.0.0.1, 같은 네트워크는 호스트 사설 IP. 포트는 호스트 화면에 표시된 값)
-4. 빌드: File > Build Profiles (Windows) → 빌드 2개 실행으로 멀티 테스트
-5. (출시 단계) Facepunch.Steamworks + Facepunch Transport 전환, Steamworks depot 업로드
+2. Play(어느 씬이든 전역 부트스트랩이 동작, 기본은 LobbyScene) → 닉네임 입력 → [방 만들기]
+   → 대기방 상단에 표시된 6자리 참가 코드 확인
+3. 다른 인스턴스(빌드 실행 또는 Multiplayer Play Mode 가상 플레이어)에서 [방 참가] → 참가 코드 입력
+   (Unity Relay 라 서로 다른 네트워크에서도 접속됨. LAN 직접 IP 접속은 docs/LAN_테스트_가이드.md)
+4. 전원 [준비하기] → 호스트가 페이즈 시간 설정 후 [게임 시작] → 3라운드 → 결과 → 대기방 자동 복귀
+5. 빌드: File > Build Profiles (Windows, LobbyScene·MainScene 포함) → 빌드 다중 실행으로 멀티 테스트
+6. (출시 단계) Facepunch.Steamworks + Facepunch Transport 전환, Steamworks depot 업로드
 
-# 초기 웹 개념검증 프로토타입 (참고용, packages/)
-npm install -g pnpm && pnpm install && pnpm dev   # http://localhost:5173
+# 초기 웹 개념검증 프로토타입 (참고용, web-prototype/)
+cd web-prototype && npm install -g pnpm && pnpm install && pnpm dev   # http://localhost:5173
 ```
 
 ### 기술 구성
@@ -281,10 +306,10 @@ npm install -g pnpm && pnpm install && pnpm dev   # http://localhost:5173
 |---|---|
 | 엔진 / 언어 | Unity 6 LTS, C# |
 | 네트워킹 | Netcode for GameObjects (호스트 권위) |
-| 전송 | UnityTransport(IP 직접, 현행) → Unity Relay(데모, 검토 중) → Facepunch/Steam(출시 단계) |
-| 물리 / 카메라 / UI | CharacterController, 커스텀 마우스룩 카메라, uGUI(코드 생성 HUD) |
-| 버전관리 / 배포 | Git + Git LFS, Steamworks (Steam Direct) |
-| 초기 검증 (웹) | TypeScript, Socket.IO, Three.js (packages/, 참고용) |
+| 전송 | Unity Relay(참가 코드, 기본) + UnityTransport LAN 직접 IP 폴백 → Facepunch/Steam(출시 단계) |
+| 물리 / 카메라 / UI | CharacterController, 커스텀 마우스룩 카메라, uGUI(코드 생성 HUD + UiKit 스타일 키트) |
+| 버전관리 / 배포 | Git(대용량 에셋은 선별·텍스처 축소 후 커밋), Steamworks (Steam Direct) |
+| 초기 검증 (웹) | TypeScript, Socket.IO, Three.js (web-prototype/, 참고용) |
 
 ---
 
