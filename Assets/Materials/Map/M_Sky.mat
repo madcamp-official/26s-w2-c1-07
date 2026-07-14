@@ -41,7 +41,7 @@ Material:
     - _MidColor: {r: 0.99, g: 0.8, b: 0.58, a: 1}
     - _SkyTint: {r: 0.52, g: 0.74, b: 0.98, a: 1}
     - _SunColor: {r: 1, g: 0.9, b: 0.65, a: 1}
-    - _SunDirection: {r: -0.96, g: 0.28, b: 0, a: 0}
+    - _SunDirection: {r: -0.9612618, g: 0.2756374, b: 0.00000008754432, a: 0}
     - _TopColor: {r: 0.34, g: 0.47, b: 0.76, a: 1}
   m_BuildTextureStacks: []
   m_AllowLocking: 1
