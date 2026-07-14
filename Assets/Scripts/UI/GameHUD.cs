@@ -29,9 +29,14 @@ namespace RouletteParty.UI
         private RectTransform _canvasRT;
 
         // 상단 배너
+        private Image _bannerPanel;   // 페이즈/라운드/타이머를 담는 라운드 패널
         private Text _phaseLabel;
         private Text _subLabel;       // "라운드 n/3   모드명"
         private Text _countdownLabel; // "n초"
+
+        // 페이즈 전환 시각(목표 문구 잠깐 표시용)
+        private MatchPhase _lastPhase = (MatchPhase)byte.MaxValue;
+        private float _phaseEnterTime;
 
         // 좌측 점수판
         private Image _scorePanel;
@@ -42,7 +47,9 @@ namespace RouletteParty.UI
         private RectTransform _playRoot;
         private Text _playObjective;
         private Text _playSurvive;   // 등반 정보(현재 높이·생존 수)
+        private GameObject _playInfoGo; // 등반 정보 알약 패널(텍스트의 부모, 패널째 토글)
         private Text _deadBanner;    // 탈락·관전 안내
+        private GameObject _deadPanelGo; // 탈락 배너 패널(패널째 토글)
 
         private RectTransform _highlightRoot;
         private Text _hlTitle;
@@ -153,51 +160,69 @@ namespace RouletteParty.UI
 
             _canvasRT = _canvas.GetComponent<RectTransform>();
 
-            // --- 상단 배너 ---
-            _phaseLabel = MakeText(_canvasRT, "", 52, TextAnchor.MiddleCenter, Color.white);
+            // --- 상단 배너(라운드 패널 안에 페이즈/라운드/타이머) ---
+            _bannerPanel = MakePanel(_canvasRT, UiKit.PanelBgSoft);
+            SetRect(_bannerPanel.rectTransform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0.5f, 1f),
+                    new Vector2(400, 128), new Vector2(0, -14));
+
+            _phaseLabel = MakeText(_bannerPanel.transform, "", 42, TextAnchor.MiddleCenter, UiKit.TextMain);
+            _phaseLabel.fontStyle = FontStyle.Bold;
             SetRect(_phaseLabel.rectTransform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0.5f, 1f),
-                    new Vector2(900, 72), new Vector2(0, -18));
+                    new Vector2(380, 56), new Vector2(0, -10));
 
-            _subLabel = MakeText(_canvasRT, "", 30, TextAnchor.MiddleCenter, Color.white);
+            _subLabel = MakeText(_bannerPanel.transform, "", 22, TextAnchor.MiddleCenter, UiKit.TextDim);
             SetRect(_subLabel.rectTransform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0.5f, 1f),
-                    new Vector2(900, 40), new Vector2(0, -92));
+                    new Vector2(380, 28), new Vector2(0, -66));
 
-            _countdownLabel = MakeText(_canvasRT, "", 34, TextAnchor.MiddleCenter, new Color(1f, 0.92f, 0.4f, 1f));
+            _countdownLabel = MakeText(_bannerPanel.transform, "", 26, TextAnchor.MiddleCenter, UiKit.Accent);
+            _countdownLabel.fontStyle = FontStyle.Bold;
             SetRect(_countdownLabel.rectTransform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0.5f, 1f),
-                    new Vector2(400, 44), new Vector2(0, -134));
+                    new Vector2(380, 32), new Vector2(0, -92));
 
             // --- 점수판(우상단) ---
             // 좌상단은 접속(Host/Client) OnGUI 버튼·디버그 패널이 쓰므로 우상단에 배치해 겹침을 피한다.
-            _scorePanel = MakeImage(_canvasRT, new Color(0f, 0f, 0f, 0.5f));
+            _scorePanel = MakePanel(_canvasRT, UiKit.PanelBg);
             SetRect(_scorePanel.rectTransform, new Vector2(1f, 1f), new Vector2(1f, 1f), new Vector2(1f, 1f),
-                    new Vector2(300, 470), new Vector2(-20, -20));
+                    new Vector2(320, 470), new Vector2(-20, -20));
 
-            _scoreTitle = MakeText(_scorePanel.transform, "점수판", 24, TextAnchor.MiddleLeft, Color.white);
+            _scoreTitle = MakeText(_scorePanel.transform, "점수판", 22, TextAnchor.MiddleLeft, UiKit.TextMain);
+            _scoreTitle.fontStyle = FontStyle.Bold;
             SetRect(_scoreTitle.rectTransform, new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0.5f, 1f),
-                    new Vector2(-16, 32), new Vector2(0, -6));
+                    new Vector2(-28, 32), new Vector2(0, -8));
+            var scoreDivider = MakeImage(_scorePanel.transform, new Color(1f, 1f, 1f, 0.14f));
+            SetRect(scoreDivider.rectTransform, new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0.5f, 1f),
+                    new Vector2(-24, 2), new Vector2(0, -40));
 
             // --- 탈락(관전) 배너 ---
-            _deadBanner = MakeText(_canvasRT, "", 40, TextAnchor.MiddleCenter, new Color(1f, 0.45f, 0.45f, 1f));
-            SetRect(_deadBanner.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
-                    new Vector2(900, 60), new Vector2(0, 140));
-            _deadBanner.gameObject.SetActive(false);
+            var deadPanel = MakePanel(_canvasRT, UiKit.PanelBg);
+            SetRect(deadPanel.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
+                    new Vector2(640, 62), new Vector2(0, 140));
+            _deadBanner = MakeText(deadPanel.transform, "", 34, TextAnchor.MiddleCenter, UiKit.Danger);
+            _deadBanner.fontStyle = FontStyle.Bold;
+            Stretch(_deadBanner.rectTransform);
+            _deadPanelGo = deadPanel.gameObject; // 패널째 켜고 끈다(텍스트만 끄면 패널이 남음)
+            _deadPanelGo.SetActive(false);
 
             // --- 플레이 루트 ---
             _playRoot = MakeRect(_canvasRT, "PlayRoot");
             SetRect(_playRoot, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0.5f, 0f),
-                    new Vector2(1000, 150), new Vector2(0, 120));
-            _playObjective = MakeText(_playRoot, "", 44, TextAnchor.MiddleCenter, Color.white);
+                    new Vector2(1000, 170), new Vector2(0, 40));
+            _playObjective = MakeText(_playRoot, "", 40, TextAnchor.MiddleCenter, UiKit.TextMain);
+            _playObjective.fontStyle = FontStyle.Bold;
             SetRect(_playObjective.rectTransform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0.5f, 1f),
-                    new Vector2(1000, 60), new Vector2(0, -10));
-            _playSurvive = MakeText(_playRoot, "", 32, TextAnchor.MiddleCenter, new Color(1f, 0.55f, 0.55f, 1f));
-            SetRect(_playSurvive.rectTransform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0.5f, 1f),
-                    new Vector2(1000, 44), new Vector2(0, -74));
+                    new Vector2(1000, 56), new Vector2(0, -4));
+            var playInfoPanel = MakePanel(_playRoot, UiKit.PanelBgSoft);
+            SetRect(playInfoPanel.rectTransform, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0.5f, 0f),
+                    new Vector2(380, 46), new Vector2(0, 12));
+            _playSurvive = MakeText(playInfoPanel.transform, "", 24, TextAnchor.MiddleCenter, UiKit.TextMain);
+            Stretch(_playSurvive.rectTransform);
+            _playInfoGo = playInfoPanel.gameObject;
 
             // --- 하이라이트 루트(카드) ---
             _highlightRoot = MakeRect(_canvasRT, "HighlightRoot");
             SetRect(_highlightRoot, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
                     new Vector2(560, 440), new Vector2(0, 0));
-            var hlBg = MakeImage(_highlightRoot, new Color(0f, 0f, 0f, 0.72f));
+            var hlBg = MakePanel(_highlightRoot, new Color(0.07f, 0.09f, 0.15f, 0.88f));
             Stretch(hlBg.rectTransform);
             hlBg.rectTransform.SetAsFirstSibling();
 
@@ -242,6 +267,9 @@ namespace RouletteParty.UI
             var chV = MakeImage(_crosshair, new Color(1f, 1f, 1f, 0.85f)); // 세로 바
             SetRect(chV.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
                     new Vector2(2, 18), Vector2.zero);
+            var chDot = MakeImage(_crosshair, new Color(1f, 0.83f, 0.35f, 0.95f)); // 중앙 도트(액센트)
+            SetRect(chDot.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
+                    new Vector2(4, 4), Vector2.zero);
             _crosshair.gameObject.SetActive(false);
 
             HideAllPhaseRoots();
@@ -285,14 +313,23 @@ namespace RouletteParty.UI
 
             ulong localId = nm.LocalClientId;
 
+            // 페이즈 전환 시각 기록(목표 문구 잠깐 표시 등 연출용).
+            if (m.CurrentPhase != _lastPhase)
+            {
+                _lastPhase = m.CurrentPhase;
+                _phaseEnterTime = Time.unscaledTime;
+            }
+
             // --- 상단 배너 ---
+            if (_bannerPanel != null) _bannerPanel.gameObject.SetActive(true);
             _phaseLabel.text = PhaseKorean(m.CurrentPhase);
-            _phaseLabel.color = Color.white;
+            _phaseLabel.color = UiKit.TextMain;
 
             _subLabel.text = m.Round >= 1 ? "라운드 " + m.Round + "/3" : "";
 
             float rem = m.PhaseRemaining; // 이미 클램프됨, 클라이언트 안전
             _countdownLabel.text = Mathf.CeilToInt(Mathf.Max(0f, rem)) + "초";
+            _countdownLabel.color = rem <= 10f ? UiKit.Danger : UiKit.Accent; // 임박 경고
 
             // --- 좌측 점수판(누적 점수) ---
             BuildStandings(m);
@@ -322,10 +359,10 @@ namespace RouletteParty.UI
             }
 
             // --- 탈락 배너 ---
-            if (_deadBanner != null)
+            if (_deadPanelGo != null)
             {
                 bool showDead = localDead && m.CurrentPhase == MatchPhase.Play;
-                _deadBanner.gameObject.SetActive(showDead);
+                _deadPanelGo.SetActive(showDead);
                 if (showDead) _deadBanner.text = "탈락! 관전 중 (좌클릭: 대상 전환)";
             }
 
@@ -344,10 +381,11 @@ namespace RouletteParty.UI
             _phaseLabel.text = "";
             _subLabel.text = "";
             _countdownLabel.text = "";
+            if (_bannerPanel != null) _bannerPanel.gameObject.SetActive(false); // 빈 알약 패널 잔상 방지
             EnsureRows(_scoreRows, _scorePanel.transform, 0);
             HideAllPhaseRoots();
             if (_crosshair != null) _crosshair.gameObject.SetActive(false);
-            if (_deadBanner != null) _deadBanner.gameObject.SetActive(false);
+            if (_deadPanelGo != null) _deadPanelGo.SetActive(false);
             for (int i = 0; i < _nameplates.Count; i++)
                 _nameplates[i].go.SetActive(false);
         }
@@ -386,6 +424,8 @@ namespace RouletteParty.UI
 
         private void FillScoreboard(ulong localId)
         {
+            // 패널 높이 = 제목 + 행 수(인원이 적을 때 빈 패널이 늘어지지 않게).
+            _scorePanel.rectTransform.sizeDelta = new Vector2(320, HEADER + _standings.Count * ROWH + 14);
             EnsureRows(_scoreRows, _scorePanel.transform, _standings.Count);
             for (int i = 0; i < _standings.Count; i++)
             {
@@ -417,8 +457,11 @@ namespace RouletteParty.UI
         private void RenderPlay(MatchManager m, float localY, bool localDead)
         {
             _playRoot.gameObject.SetActive(true);
-            _playObjective.text = "더 높이 올라가라!";
-            _playSurvive.gameObject.SetActive(true);
+            // 목표 문구는 라운드 시작 직후 잠깐만(계속 떠 있으면 시야/플레이어와 겹친다).
+            bool showObjective = Time.unscaledTime - _phaseEnterTime < 4f;
+            _playObjective.gameObject.SetActive(showObjective);
+            if (showObjective) _playObjective.text = "더 높이 올라가라!";
+            if (_playInfoGo != null) _playInfoGo.SetActive(true);
             // 현재 높이(점수의 근거)와 생존 수. 체력은 비공개 규칙이라 절대 표시하지 않는다.
             _playSurvive.text = localDead
                 ? "생존 " + m.AliveCount
@@ -625,7 +668,7 @@ namespace RouletteParty.UI
         private Row MakeRow(Transform parent)
         {
             var r = new Row();
-            r.bg = MakeImage(parent, new Color(1f, 1f, 1f, 0f));
+            r.bg = MakePanel(parent, new Color(1f, 1f, 1f, 0f)); // 라운드 코너(로컬 강조/결과 행 배경)
             r.rt = r.bg.rectTransform;
             SetRect(r.rt, new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0.5f, 1f),
                     new Vector2(-12, ROWH), Vector2.zero);
@@ -679,6 +722,15 @@ namespace RouletteParty.UI
             var img = go.GetComponent<Image>();
             img.color = col; // sprite 없음 → 빌트인 흰색 1x1을 color로 틴트
             img.raycastTarget = false;
+            return img;
+        }
+
+        // 라운드 코너 패널(UiKit 9-slice 스프라이트). 코드 생성 HUD 의 공통 배경.
+        private Image MakePanel(Transform parent, Color col)
+        {
+            var img = MakeImage(parent, col);
+            img.sprite = UiKit.RoundSprite;
+            img.type = Image.Type.Sliced;
             return img;
         }
 

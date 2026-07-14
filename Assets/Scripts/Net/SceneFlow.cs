@@ -16,6 +16,7 @@ namespace RouletteParty.Net
         [SerializeField] private string _lobbySceneName = "LobbyScene";
 
         private NetworkManager _nm;
+        private bool _wasOnline; // 폴링 폴백용(콜백 유실 대비)
 
         private void Start()
         {
@@ -28,10 +29,20 @@ namespace RouletteParty.Net
             if (_nm != null) _nm.OnClientStopped -= HandleStopped;
         }
 
+        // 콜백이 유실되는 비정상 종료(트랜스포트 급사 등)까지 잡는 폴링 폴백.
+        // HandleStopped 는 멱등(이미 대기방 씬이면 no-op)이라 이벤트와 중복 호출돼도 안전하다.
+        private void Update()
+        {
+            bool online = _nm != null && _nm.IsListening;
+            if (_wasOnline && !online) HandleStopped(false);
+            _wasOnline = online;
+        }
+
         private void HandleStopped(bool wasHost)
         {
             var active = UnityEngine.SceneManagement.SceneManager.GetActiveScene();
             if (active.name == _lobbySceneName) return;
+            Debug.Log("[SceneFlow] 네트워크 세션 종료 감지 -> 대기방 씬 복귀");
             UnityEngine.SceneManagement.SceneManager.LoadScene(_lobbySceneName);
         }
     }

@@ -15,6 +15,9 @@ namespace RouletteParty.Core
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
         private static void Init()
         {
+            // 멀티플레이어 필수: 창이 포커스를 잃어도 플레이어 루프를 돌려 연결(하트비트)을 유지한다.
+            Application.runInBackground = true;
+
             if (Unity.Netcode.NetworkManager.Singleton != null) return; // 이미 존재(중복 방지)
 
             var prefab = Resources.Load<GameObject>(RIG_PATH);

@@ -47,7 +47,7 @@ namespace RouletteParty.UI
         private bool _nameSent;         // 접속 후 닉네임 RPC 1회 전송 플래그
 
         // IMGUI 스타일(1080p 가상 픽셀 기준, OnGUI 안에서 1회 생성)
-        private GUIStyle _stTitle, _stH2, _stLabel, _stSmall, _stBtn, _stBtnBig, _stInput, _stRow;
+        private GUIStyle _stTitle, _stH2, _stLabel, _stSmall, _stBtn, _stBtnBig, _stInput, _stRow, _stPanel;
 
         private void Awake()
         {
@@ -274,9 +274,9 @@ namespace RouletteParty.UI
 
             float w = ImguiScale.VirtualWidth, h = ImguiScale.VirtualHeight;
 
-            // 배경 딤: 뒤 월드/디버그 패널과 시각적으로 분리.
+            // 배경 딤: 뒤 월드와 시각적으로 분리하되, 대기방 스테이지/스카이 배경이 비치게 옅게.
             Color old = GUI.color;
-            GUI.color = new Color(0f, 0f, 0f, _view == View.Waiting ? 0.55f : 0.8f);
+            GUI.color = new Color(0f, 0f, 0f, _view == View.Waiting ? 0.30f : 0.45f);
             GUI.DrawTexture(new Rect(0, 0, w, h), Texture2D.whiteTexture);
             GUI.color = old;
 
@@ -300,6 +300,23 @@ namespace RouletteParty.UI
             _stBtnBig = new GUIStyle(GUI.skin.button)    { fontSize = 30, fontStyle = FontStyle.Bold };
             _stInput  = new GUIStyle(GUI.skin.textField) { fontSize = 28, alignment = TextAnchor.MiddleLeft };
             _stRow    = new GUIStyle(GUI.skin.label)     { fontSize = 26, richText = true };
+
+            // 라운드 코너 다크 패널(HUD 와 같은 톤, UiKit 텍스처 9-slice).
+            _stPanel = new GUIStyle(GUI.skin.box)
+            {
+                border = new RectOffset(UiKit.ImguiBorder, UiKit.ImguiBorder, UiKit.ImguiBorder, UiKit.ImguiBorder),
+                padding = new RectOffset(26, 26, 20, 20),
+            };
+            _stPanel.normal.background = UiKit.ImguiPanelTex;
+
+            // 텍스트 기본색 통일(어두운 패널 위 가독성).
+            Color main = new Color(0.96f, 0.97f, 1f, 1f);
+            Color dim  = new Color(0.72f, 0.78f, 0.88f, 1f);
+            _stTitle.normal.textColor = main;
+            _stH2.normal.textColor = main;
+            _stLabel.normal.textColor = main;
+            _stSmall.normal.textColor = dim;
+            _stRow.normal.textColor = main;
         }
 
         private static Rect CenterRect(float w, float h, float pw, float ph) =>
@@ -308,10 +325,10 @@ namespace RouletteParty.UI
         // ---------------- 타이틀 ----------------
         private void DrawTitle(float w, float h)
         {
-            GUILayout.BeginArea(CenterRect(w, h, 560, 600), GUI.skin.box);
+            GUILayout.BeginArea(CenterRect(w, h, 560, 600), _stPanel);
             GUILayout.Space(28);
             GUILayout.Label("클라이밍 파티", _stTitle);
-            GUILayout.Label("LAN 멀티플레이 시연", new GUIStyle(_stSmall) { alignment = TextAnchor.MiddleCenter });
+            GUILayout.Label("참가 코드로 함께 오르는 파티 클라이밍", new GUIStyle(_stSmall) { alignment = TextAnchor.MiddleCenter });
             GUILayout.Space(34);
 
             GUILayout.Label($"닉네임 (최대 {NAME_MAX}자)", _stLabel);
@@ -337,7 +354,7 @@ namespace RouletteParty.UI
         // ---------------- 방 참가 ----------------
         private void DrawJoin(float w, float h)
         {
-            GUILayout.BeginArea(CenterRect(w, h, 560, 520), GUI.skin.box);
+            GUILayout.BeginArea(CenterRect(w, h, 560, 520), _stPanel);
             GUILayout.Space(20);
             GUILayout.Label("방 참가", _stTitle);
             GUILayout.Space(20);
@@ -378,7 +395,7 @@ namespace RouletteParty.UI
             bool hostSide = NetworkManager.Singleton == null ||
                             (!NetworkManager.Singleton.IsClient && string.IsNullOrEmpty(cs != null ? cs.JoinTarget : ""));
 
-            GUILayout.BeginArea(CenterRect(w, h, 560, 300), GUI.skin.box);
+            GUILayout.BeginArea(CenterRect(w, h, 560, 300), _stPanel);
             GUILayout.Space(30);
             int sec = Mathf.FloorToInt(Time.unscaledTime - _connectStart);
             GUILayout.Label(relayPrep ? "릴레이 준비 중…" : "서버에 연결하는 중…", _stTitle);
@@ -404,7 +421,7 @@ namespace RouletteParty.UI
             var cs = ConnectionService.Instance;
             bool isServer = nm != null && nm.IsServer;
 
-            GUILayout.BeginArea(CenterRect(w, h, 820, 760), GUI.skin.box);
+            GUILayout.BeginArea(CenterRect(w, h, 820, 760), _stPanel);
             GUILayout.Space(16);
             GUILayout.Label("대기방", _stTitle);
             GUILayout.Space(10);
