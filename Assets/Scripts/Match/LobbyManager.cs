@@ -68,6 +68,12 @@ namespace RouletteParty.Match
         [Tooltip("방 정원. 초과 접속은 접속 승인(ConnectionService) 단계에서 거절된다.")]
         [SerializeField] private int _maxPlayers = 4;
 
+        [Header("매치 설정 (호스트가 대기방에서 조절, 전 클라 표시)")]
+        [Tooltip("준비(구조물 설치) 시간 프리셋(초).")]
+        [SerializeField] private float[] _prepPresets = { 30f, 60f, 90f, 120f };
+        [Tooltip("등반(플레이) 시간 프리셋(초).")]
+        [SerializeField] private float[] _playPresets = { 120f, 180f, 240f, 300f };
+
         [Header("씬 분리 (대기방 씬 전용)")]
         [Tooltip("게임 시작 시 NGO 씬 동기화로 로드할 게임 씬 이름(빌드 설정 등록 필수). 같은 씬에 MatchManager 가 있으면(레거시 단일 씬) 씬 전환 없이 기존 FSM 으로 시작한다.")]
         [SerializeField] private string _gameSceneName = "MainScene";
@@ -77,6 +83,19 @@ namespace RouletteParty.Match
         [SerializeField] private float _stageSpacing = 1.2f;
 
         private NetworkList<LobbyPlayerState> _players = new NetworkList<LobbyPlayerState>();
+
+        // 페이즈 시간 설정(서버 write, 전 클라 read - 대기방 UI 표시). 호스트 선택은 PlayerPrefs 로 영속.
+        private NetworkVariable<float> _prepSeconds = new NetworkVariable<float>(60f);
+        private NetworkVariable<float> _playSeconds = new NetworkVariable<float>(180f);
+        private const string KEY_PREP = "match.prepSeconds";
+        private const string KEY_PLAY = "match.playSeconds";
+
+        /// <summary>현재 설정된 준비 페이즈 시간(초, 전 클라 표시용).</summary>
+        public float PrepSeconds => _prepSeconds.Value;
+        /// <summary>현재 설정된 등반 페이즈 시간(초, 전 클라 표시용).</summary>
+        public float PlaySeconds => _playSeconds.Value;
+        public float[] PrepPresets => _prepPresets;
+        public float[] PlayPresets => _playPresets;
 
         // 게임 씬에는 LobbyManager 가 없으므로(씬 분리) 마지막 대기방 닉네임을 정적으로 남긴다.
         // 모든 피어가 자기 복제본(NetworkList)에서 스냅샷을 뜨므로 전 피어 동일 - PlayerPalette 폴백.
@@ -118,6 +137,11 @@ namespace RouletteParty.Match
             _players.OnListChanged += HandleListChanged; // 닉네임 스냅샷 동기화(전 피어)
             SyncNameSnapshot();
             if (!IsServer) return;
+
+            // 호스트가 마지막으로 고른 페이즈 시간 복원 -> 서버 소비 값(MatchSettings)에 반영.
+            _prepSeconds.Value = PlayerPrefs.GetFloat(KEY_PREP, _prepSeconds.Value);
+            _playSeconds.Value = PlayerPrefs.GetFloat(KEY_PLAY, _playSeconds.Value);
+            ApplyMatchSettings();
 
             NetworkManager.OnClientConnectedCallback  += HandleClientConnected;
             NetworkManager.OnClientDisconnectCallback += HandleClientDisconnected;
@@ -205,6 +229,36 @@ namespace RouletteParty.Match
         {
             for (int i = 0; i < _players.Count; i++)
                 if (_players[i].ClientId == clientId) { _players.RemoveAt(i); return; }
+        }
+
+        // 서버 소비 값 반영: MatchManager(게임 씬)가 PREP/PLAY 시간으로 사용한다.
+        private void ApplyMatchSettings()
+        {
+            MatchSettings.PrepSeconds = _prepSeconds.Value;
+            MatchSettings.PlaySeconds = _playSeconds.Value;
+        }
+
+        /// <summary>
+        /// 호스트의 페이즈 시간 변경(대기방에서만). 서버가 호스트 여부/범위를 재검증하고
+        /// 선택을 PlayerPrefs 로 영속화한다(호스트 = 서버라 서버 저장 = 호스트 저장).
+        /// </summary>
+        [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Everyone)]
+        public void SetPhaseTimingServerRpc(float prepSeconds, float playSeconds, RpcParams rpcParams = default)
+        {
+            var mm = MatchManager.Instance;
+            if (mm != null && mm.IsSpawned && mm.CurrentPhase != MatchPhase.Lobby) return; // 게임 중 변경 금지
+
+            ulong sender = rpcParams.Receive.SenderClientId;
+            bool senderIsHost = false;
+            for (int i = 0; i < _players.Count; i++)
+                if (_players[i].ClientId == sender && _players[i].IsHost) { senderIsHost = true; break; }
+            if (!senderIsHost) return;
+
+            _prepSeconds.Value = Mathf.Clamp(prepSeconds, 10f, 600f);
+            _playSeconds.Value = Mathf.Clamp(playSeconds, 30f, 900f);
+            PlayerPrefs.SetFloat(KEY_PREP, _prepSeconds.Value);
+            PlayerPrefs.SetFloat(KEY_PLAY, _playSeconds.Value);
+            ApplyMatchSettings();
         }
 
         /// <summary>직전 게임의 준비 상태만 초기화(목록/닉네임 유지).</summary>

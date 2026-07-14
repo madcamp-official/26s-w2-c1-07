@@ -225,13 +225,15 @@ namespace RouletteParty.Match
             // (전원 탈락 조기 종료 규칙은 자동 부활 도입으로 폐지 — 탈락은 일시 상태다.)
         }
 
+        // 준비/등반 시간은 호스트가 대기방에서 고른 값(MatchSettings)이 우선, 미설정 시 인스펙터 기본값.
+        // 나머지 연출 페이즈(로비/하이라이트/대기/결과)는 인스펙터에서 페이즈별로 조절한다.
         private float BaseDuration(MatchPhase p)
         {
             switch (p)
             {
                 case MatchPhase.Lobby:     return _lobbyDuration;
-                case MatchPhase.Prep:      return _prepDuration;
-                case MatchPhase.Play:      return _playDuration;
+                case MatchPhase.Prep:      return MatchSettings.PrepSeconds > 0f ? MatchSettings.PrepSeconds : _prepDuration;
+                case MatchPhase.Play:      return MatchSettings.PlaySeconds > 0f ? MatchSettings.PlaySeconds : _playDuration;
                 case MatchPhase.Highlight: return _highlightDuration;
                 case MatchPhase.Intermission: return _intermissionDuration;
                 case MatchPhase.Result:    return _resultDuration;
@@ -247,6 +249,7 @@ namespace RouletteParty.Match
         {
             _phase.Value = p;
             _phaseEndTime.Value = NetworkManager.ServerTime.Time + EffectiveDuration(p);
+            Debug.Log($"[Match] phase={p} duration={EffectiveDuration(p):0.#}s (round {_round.Value})");
             _pendingRespawn.Clear(); // 페이즈 경계에서는 BeginPrep/BeginPlay 가 전원 복귀를 처리한다
 
             switch (p)

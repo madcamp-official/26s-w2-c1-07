@@ -574,6 +574,23 @@ namespace RouletteParty.UI
 
             GUILayout.FlexibleSpace();
 
+            // ---- 매치 설정(페이즈 시간): 호스트 = 프리셋 버튼 편집, 참가자 = 표시만 ----
+            if (lm != null && lm.IsSpawned)
+            {
+                if (meHost)
+                {
+                    DrawTimingRow("준비 시간", lm.PrepPresets, lm.PrepSeconds,
+                                  v => lm.SetPhaseTimingServerRpc(v, lm.PlaySeconds));
+                    DrawTimingRow("등반 시간", lm.PlayPresets, lm.PlaySeconds,
+                                  v => lm.SetPhaseTimingServerRpc(lm.PrepSeconds, v));
+                }
+                else
+                {
+                    GUILayout.Label($"매치 설정   준비 <b>{FormatSec(lm.PrepSeconds)}</b> · 등반 <b>{FormatSec(lm.PlaySeconds)}</b>", _stRow);
+                }
+                GUILayout.Space(8);
+            }
+
             // ---- 하단 버튼 ----
             GUILayout.BeginHorizontal();
             if (lm != null && lm.IsSpawned)
@@ -604,6 +621,32 @@ namespace RouletteParty.UI
             GUILayout.EndArea();
 
             DrawBanner(new Rect(panel.x + 240, panel.y - 32, panel.width - 480, 74), "대기방", UiKit.Blue, -1.5f, Color.white);
+        }
+
+        // 페이즈 시간 프리셋 한 줄: 선택 = 청록, 나머지 = 회색(호스트 전용 편집).
+        private void DrawTimingRow(string label, float[] presets, float current, System.Action<float> onPick)
+        {
+            if (presets == null || presets.Length == 0) return;
+            GUILayout.BeginHorizontal(GUILayout.Height(46));
+            GUILayout.Label(label, _stLabel, GUILayout.Width(130));
+            for (int i = 0; i < presets.Length; i++)
+            {
+                bool selHere = Mathf.Approximately(presets[i], current);
+                if (GUILayout.Button(FormatSec(presets[i]), Btn(selHere ? UiKit.Teal : UiKit.Grey, 20),
+                                     GUILayout.Height(42)) && !selHere)
+                    onPick(presets[i]);
+                GUILayout.Space(6);
+            }
+            GUILayout.FlexibleSpace();
+            GUILayout.EndHorizontal();
+        }
+
+        private static string FormatSec(float s)
+        {
+            int sec = Mathf.RoundToInt(s);
+            if (sec >= 60 && sec % 60 == 0) return (sec / 60) + "분";
+            if (sec >= 60) return $"{sec / 60}분 {sec % 60}초";
+            return sec + "초";
         }
     }
 }
