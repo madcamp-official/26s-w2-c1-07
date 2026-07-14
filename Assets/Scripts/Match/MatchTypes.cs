@@ -3,7 +3,7 @@ using Unity.Netcode;
 namespace RouletteParty.Match
 {
     // =====================================================================================
-    // 클라이밍 전환(docs/클라이밍_전환_명세서.md) 후의 매치 도메인 타입.
+    // 클라이밍 전환(docs/archive/클라이밍_전환_명세서.md) 후의 매치 도메인 타입.
     // 룰렛/주제/게임 모드(IGameMode·Race/Height/Survive)/Course 는 전부 폐기: 단일 클라이밍 모드.
     //  - 복제 표시 상태(페이즈/라운드/타이머/승자/맵 시드)는 MatchManager 의 NetworkVariable.
     //  - 라운드 판정 데이터(낙하 추적/사망 높이/정상 도달)는 서버 전용 PlayerRuntime(비복제).
