@@ -174,11 +174,31 @@ public class ClimbMapGenerator : MonoBehaviour
     [Tooltip("겹침 허용 한도(m): 조각 XZ 박스가 이 깊이 이상 관통하면 다른 위치를 재시도한다.")]
     [SerializeField] private float roomOverlapTolerance = 0.3f;
 
-    [Header("청크: 무너진 다리")]
+    [Header("청크: 무너진 다리 (선택 풀 제외 — 베이스 보존)")]
     [Tooltip("단절 갭(min,max). 4.3 미만이면 구조물 없이 건너져 게이트가 무력화된다.")]
     [SerializeField] private Vector2 bridgeGap = new Vector2(4.8f, 5.6f);
     [Tooltip("다리 상판 조각(평평한 윗면 3m 내외). 비우면 기본 도형 플랭크.")]
     [SerializeField] private PlatformSegment bridgePiece;
+
+    [Header("청크: 지름길 (구조물 1개로 우회로를 건너뛴다)")]
+    [Tooltip("지름길 단절 폭(min,max). 구조물 1개로 건너는 규모(4.3 이상 유지).")]
+    [SerializeField] private Vector2 shortcutGap = new Vector2(4.8f, 5.6f);
+    [Tooltip("정직한 우회로가 옆으로 부푸는 폭(m).")]
+    [SerializeField] private float shortcutDetourWidth = 3.5f;
+    [Tooltip("우회로 걸음 수(소 티어, 중복 없음 — 소 티어 종수 이하 권장).")]
+    [SerializeField] private int shortcutDetourSteps = 4;
+    [Tooltip("지름길/우회로의 총 상승(min,max).")]
+    [SerializeField] private Vector2 shortcutRise = new Vector2(0.5f, 0.8f);
+
+    [Header("청크: 대단절 (여러 플레이어의 구조물을 이어야 건넌다)")]
+    [Tooltip("대단절 폭(min,max). 구조물 1개가 ~3m 이므로 2~4개를 이어야 하는 규모.")]
+    [SerializeField] private Vector2 grandGap = new Vector2(9f, 13f);
+
+    [Header("청크: 랜드마크 (아주 큰 에셋 하나)")]
+    [Tooltip("대 티어 에셋에 곱하는 배율(기존 대 티어보다 훨씬 커야 함).")]
+    [SerializeField] private float landmarkScale = 2.2f;
+    [Tooltip("랜드마크 진입 상승(min,max).")]
+    [SerializeField] private Vector2 landmarkRise = new Vector2(0.45f, 0.7f);
 
     [Header("청크: 회전 (대 티어, 전부 자전)")]
     [Tooltip("회전 발판 개수.")]
@@ -502,7 +522,25 @@ public class ClimbMapGenerator : MonoBehaviour
     //  - 티어 선택(PickTier)은 티어가 비어도 항상 정확히 1 드로우(폴백이 소비 순서를 못 바꾸게).
     //  - 회전 청크는 시드 위상 + 서버시간 순수함수 회전이라 접속 시각과 무관하게 전 피어 동일.
 
-    enum SectionKind { Stairs = 0, Zigzag = 1, Shaft = 2, Room = 3, Bridge = 4, Spin = 5 }
+    enum SectionKind
+    {
+        Stairs = 0,   // 일자 길 — 선택 풀 제외(베이스 보존)
+        Zigzag = 1,
+        Shaft = 2,
+        Room = 3,
+        Bridge = 4,   // 무너진 다리 — 선택 풀 제외(지름길/대단절이 게이트 역할 대체)
+        Spin = 5,
+        Shortcut = 6, // 지름길: 우회로(점프 가능) + 구조물 1개로 여는 단절
+        GrandGap = 7, // 대단절: 여러 구조물을 이어야 하는 큰 단절
+        Landmark = 8, // 랜드마크: 아주 큰 에셋 하나
+    }
+
+    // 랜덤 선택 가능한 청크 풀(일자 길·무너진 다리 제외).
+    static readonly SectionKind[] SelectableKinds =
+    {
+        SectionKind.Zigzag, SectionKind.Shaft, SectionKind.Room,
+        SectionKind.Spin, SectionKind.Shortcut, SectionKind.GrandGap, SectionKind.Landmark,
+    };
 
     // 공유 청크 계획(맵 시드에서 1회): 모든 레인이 같은 유형 배열/步 수/다리 갭/경계 반경을 쓴다.
     // 구성 에셋·상승·측면 지터는 레인별 rng — "배열은 같고 내용물은 다르게".
@@ -522,30 +560,34 @@ public class ClimbMapGenerator : MonoBehaviour
         var mrng = new System.Random(unchecked(seed * 743 + 101));
         int n = Mathf.Max(1, chunksPerLane);
         _plan = new ChunkPlan[n];
-        int bridges = 0; bool roomUsed = false; int last = -1;
-        int forcedBridgeAt = 1 + mrng.Next(2);
+        int gates = 0; bool roomUsed = false, landmarkUsed = false; int last = -1;
+        int forcedGateAt = 1 + mrng.Next(2); // 청크 1 또는 2 에 게이트(지름길/대단절) 1회 보장
         for (int i = 0; i < n; i++)
         {
-            int kind = PickSection(mrng, i, forcedBridgeAt, ref roomUsed, ref bridges, last);
+            int kind = PickSection(mrng, i, forcedGateAt, ref roomUsed, ref landmarkUsed, ref gates, last);
             last = kind;
             var p = new ChunkPlan { Kind = kind };
             switch ((SectionKind)kind)
             {
                 // 밴드 길이 = 최대 전진 + 조각 최대 길이 기준(관대) — 청크가 경계를 넘지 않게 하고,
                 // 짧게 끝난 몫은 경계 접속 디딤돌이 채운다. 조각 길이: 소 ~2.2 / 샤프트(중 혼합) ~2.6.
-                case SectionKind.Stairs: p.Steps = 4 + mrng.Next(3); p.Length = p.Steps * (stairsForward.y + 2.3f); break;
                 case SectionKind.Zigzag: p.Steps = 4 + mrng.Next(3); p.Length = p.Steps * (zigzagForward.y + 2.3f); break;
                 case SectionKind.Shaft:  p.Steps = 5 + mrng.Next(3); p.Length = p.Steps * (shaftForward.y + 2.6f); break;
                 case SectionKind.Room:
                     p.Steps = roomSmallCount + roomMediumCount + roomLargeCount;
                     p.Length = p.Steps * roomStepDist.y * 0.8f + 4f; break;
-                case SectionKind.Bridge:
-                    p.Steps = 2 + mrng.Next(2);
-                    p.Gap = Range(mrng, bridgeGap);
-                    p.Length = p.Steps * 5.1f + p.Gap + 1.5f + 3.5f + 5.0f; break;
                 case SectionKind.Spin:
                     p.Steps = spinCount;
                     p.Length = spinCount * (2f * 2.9f + spinGapMargin) + 2f; break;
+                case SectionKind.Shortcut:
+                    p.Steps = Mathf.Max(2, shortcutDetourSteps);
+                    p.Gap = Range(mrng, shortcutGap);
+                    p.Length = p.Gap + 4.5f + 3.5f; break;
+                case SectionKind.GrandGap:
+                    p.Gap = Range(mrng, grandGap);
+                    p.Length = p.Gap + 12f; break;
+                case SectionKind.Landmark:
+                    p.Length = landmarkScale * 4.4f + 4f; break;
             }
             _plan[i] = p;
         }
@@ -665,6 +707,26 @@ public class ClimbMapGenerator : MonoBehaviour
         return seg;
     }
 
+    // 청크 내부용 중복 금지 선택: 이 청크에서 아직 안 쓴 프리팹 중 균등 랜덤(항상 1 드로우).
+    // 전부 소진되면 null 반환 -> 청크를 그 자리에서 끝낸다("한 청크 안에 같은 발판 없음" 규칙).
+    PlatformSegment PickTierDistinct(System.Random rng, PlatformSegment[] tier, Transform parent,
+                                     Vector3 fallbackSize, string name, HashSet<PlatformSegment> used)
+    {
+        double roll = rng.NextDouble();
+        if (tier == null || tier.Length == 0) return Slab(parent, fallbackSize, name);
+
+        var avail = new List<PlatformSegment>(tier.Length);
+        foreach (var p in tier)
+            if (p != null && !used.Contains(p)) avail.Add(p);
+        if (avail.Count == 0) return null;
+
+        var prefab = avail[Mathf.Min((int)(roll * avail.Count), avail.Count - 1)];
+        used.Add(prefab);
+        var seg = Instantiate(prefab, parent);
+        seg.gameObject.name = name;
+        return seg;
+    }
+
     // 진입/휴게/정상 발판: 티어 랜덤 + 낮은 확률(tiltChance) 90도 회전(눕힘/세움) + 동적 조각 위상.
     // 드로우 수 고정: 티어 1 + 틸트 2 (+ 조각 내 회전/이동 컴포넌트 수만큼 — 프리팹별 고정).
     PlatformSegment RestPiece(System.Random rng, PlatformSegment[] tier, Transform parent,
@@ -718,12 +780,15 @@ public class ClimbMapGenerator : MonoBehaviour
 
             switch ((SectionKind)plan.Kind)
             {
-                case SectionKind.Stairs: SectionStairs(rng, laneRoot, ground, laneIndex, heading, bandOrigin, stopR, plan, ref cursor, ref ordinal, ref footprint, ref made); break;
-                case SectionKind.Zigzag: SectionZigzag(rng, laneRoot, ground, laneIndex, heading, bandOrigin, stopR, plan, ref cursor, ref ordinal, ref footprint, ref made); break;
-                case SectionKind.Shaft:  SectionShaft(rng, laneRoot, ground, laneIndex, heading, bandOrigin, stopR, plan, ref cursor, ref ordinal, ref footprint, ref made); break;
-                case SectionKind.Room:   SectionRoom(rng, laneRoot, ground, laneIndex, heading, bandOrigin, stopR, plan, ref cursor, ref ordinal, ref footprint, ref made); break;
-                case SectionKind.Bridge: SectionBridge(rng, laneRoot, ground, laneIndex, heading, plan, ref cursor, ref ordinal, ref footprint, ref made); break;
-                case SectionKind.Spin:   SectionSpin(rng, laneRoot, ground, laneIndex, heading, bandOrigin, stopR, plan, ref cursor, ref ordinal, ref footprint, ref made); break;
+                case SectionKind.Stairs:   SectionStairs(rng, laneRoot, ground, laneIndex, heading, bandOrigin, stopR, plan, ref cursor, ref ordinal, ref footprint, ref made); break;
+                case SectionKind.Zigzag:   SectionZigzag(rng, laneRoot, ground, laneIndex, heading, bandOrigin, stopR, plan, ref cursor, ref ordinal, ref footprint, ref made); break;
+                case SectionKind.Shaft:    SectionShaft(rng, laneRoot, ground, laneIndex, heading, bandOrigin, stopR, plan, ref cursor, ref ordinal, ref footprint, ref made); break;
+                case SectionKind.Room:     SectionRoom(rng, laneRoot, ground, laneIndex, heading, bandOrigin, stopR, plan, ref cursor, ref ordinal, ref footprint, ref made); break;
+                case SectionKind.Bridge:   SectionBridge(rng, laneRoot, ground, laneIndex, heading, plan, ref cursor, ref ordinal, ref footprint, ref made); break;
+                case SectionKind.Spin:     SectionSpin(rng, laneRoot, ground, laneIndex, heading, bandOrigin, stopR, plan, ref cursor, ref ordinal, ref footprint, ref made); break;
+                case SectionKind.Shortcut: SectionShortcut(rng, laneRoot, ground, laneIndex, heading, plan, ref cursor, ref ordinal, ref footprint, ref made); break;
+                case SectionKind.GrandGap: SectionGrandGap(rng, laneRoot, ground, laneIndex, heading, plan, ref cursor, ref ordinal, ref footprint, ref made); break;
+                case SectionKind.Landmark: SectionLandmark(rng, laneRoot, ground, laneIndex, heading, ref cursor, ref ordinal, ref footprint, ref made); break;
             }
 
             // 경계 접속: 짧게 끝난 몫을 디딤돌로 잇고, 휴게 발판을 공유 경계점(레인 오프셋 적용)에 놓는다.
@@ -802,21 +867,29 @@ public class ClimbMapGenerator : MonoBehaviour
         }
     }
 
-    int PickSection(System.Random rng, int idx, int forcedBridgeAt,
-                    ref bool roomUsed, ref int bridges, int last)
+    int PickSection(System.Random rng, int idx, int forcedGateAt,
+                    ref bool roomUsed, ref bool landmarkUsed, ref int gates, int last)
     {
-        if (idx == forcedBridgeAt && bridges == 0) { bridges++; return (int)SectionKind.Bridge; }
-        for (int tries = 0; tries < 8; tries++)
+        // 게이트(구조물 설치 유도) 1회 보장: 지름길 또는 대단절.
+        if (idx == forcedGateAt && gates == 0)
         {
-            int k = rng.Next(6);
+            gates++;
+            return rng.NextDouble() < 0.5 ? (int)SectionKind.Shortcut : (int)SectionKind.GrandGap;
+        }
+        for (int tries = 0; tries < 10; tries++)
+        {
+            int k = (int)SelectableKinds[rng.Next(SelectableKinds.Length)];
+            bool isGate = k == (int)SectionKind.Shortcut || k == (int)SectionKind.GrandGap;
             if (k == last) continue;
-            if (k == (int)SectionKind.Room && roomUsed) continue;                     // 방은 레인당 1회
-            if (k == (int)SectionKind.Bridge && (bridges >= 2 || idx == 0)) continue; // 첫 청크는 다리 금지
+            if (k == (int)SectionKind.Room && roomUsed) continue;         // 방은 레인당 1회
+            if (k == (int)SectionKind.Landmark && landmarkUsed) continue; // 랜드마크도 1회(스펙터클 유지)
+            if (isGate && (gates >= 2 || idx == 0)) continue;             // 첫 청크는 게이트 금지
             if (k == (int)SectionKind.Room) roomUsed = true;
-            if (k == (int)SectionKind.Bridge) bridges++;
+            if (k == (int)SectionKind.Landmark) landmarkUsed = true;
+            if (isGate) gates++;
             return k;
         }
-        return (int)SectionKind.Stairs;
+        return (int)SectionKind.Zigzag;
     }
 
     static float ForwardOf(Vector3 p, Vector3 origin, Vector3 f) =>
@@ -828,12 +901,14 @@ public class ClimbMapGenerator : MonoBehaviour
                        ref Vector3 cursor, ref int ordinal, ref Bounds footprint, ref int made)
     {
         Vector3 F = Fwd(heading); Vector3 L = Lat(heading);
+        var used = new HashSet<PlatformSegment>();
         for (int i = 0; i < plan.Steps && ForwardOf(cursor, laneOrigin, F) < stopR; i++)
         {
             float dx = Range(rng, stairsForward);
             float dy = Range(rng, stairsRise);
             float lat = Jit(rng, 0.35f);
-            var seg = PickTier(rng, smallPlatforms, root, new Vector3(1.6f, 0.4f, 1.8f), "Stair");
+            var seg = PickTierDistinct(rng, smallPlatforms, root, new Vector3(1.6f, 0.4f, 1.8f), "Stair", used);
+            if (seg == null) break; // 청크 내 중복 금지: 종류 소진 시 조기 종료
             cursor = Chain(seg, cursor + F * dx + L * lat + Vector3.up * dy,
                            ground, laneIndex, ref ordinal, ref footprint, ref made);
         }
@@ -845,6 +920,7 @@ public class ClimbMapGenerator : MonoBehaviour
                        ref Vector3 cursor, ref int ordinal, ref Bounds footprint, ref int made)
     {
         Vector3 F = Fwd(heading); Vector3 L = Lat(heading);
+        var used = new HashSet<PlatformSegment>();
         float sign = rng.NextDouble() < 0.5 ? 1f : -1f;
         float lat = 0f; // 청크 진입점 기준 현재 측면 오프셋
         for (int i = 0; i < plan.Steps && ForwardOf(cursor, laneOrigin, F) < stopR; i++)
@@ -854,7 +930,8 @@ public class ClimbMapGenerator : MonoBehaviour
             float amp = Range(rng, zigzagAmp);
             float dLat = sign * amp - lat;
             lat = sign * amp;
-            var seg = PickTier(rng, smallPlatforms, root, new Vector3(1.8f, 0.4f, 2.2f), "Zig");
+            var seg = PickTierDistinct(rng, smallPlatforms, root, new Vector3(1.8f, 0.4f, 2.2f), "Zig", used);
+            if (seg == null) break; // 청크 내 중복 금지
             cursor = Chain(seg, cursor + F * dx + L * dLat + Vector3.up * dy,
                            ground, laneIndex, ref ordinal, ref footprint, ref made);
             sign = -sign;
@@ -869,13 +946,15 @@ public class ClimbMapGenerator : MonoBehaviour
                       ref Vector3 cursor, ref int ordinal, ref Bounds footprint, ref int made)
     {
         Vector3 F = Fwd(heading); Vector3 L = Lat(heading);
+        var used = new HashSet<PlatformSegment>(); // 소/중 티어 공용(청크 전체 중복 금지)
         float sign = rng.NextDouble() < 0.5 ? 1f : -1f;
         float lat = 0f;
         for (int i = 0; i < plan.Steps && ForwardOf(cursor, laneOrigin, F) < stopR; i++)
         {
             double tierRoll = rng.NextDouble();
             var tier = tierRoll < shaftMediumChance ? mediumPlatforms : smallPlatforms;
-            var seg = PickTier(rng, tier, root, new Vector3(1.4f, 0.35f, 1.4f), "ShaftStep");
+            var seg = PickTierDistinct(rng, tier, root, new Vector3(1.4f, 0.35f, 1.4f), "ShaftStep", used);
+            if (seg == null) break; // 청크 내 중복 금지
 
             float dx = Range(rng, shaftForward);
             float dy = Range(rng, shaftRise);
@@ -898,6 +977,7 @@ public class ClimbMapGenerator : MonoBehaviour
         float baseY = cursor.y;
         var prevXZ = new Vector2(cursor.x, cursor.z);
         var placed = new List<Bounds>();
+        var used = new HashSet<PlatformSegment>();
         PlatformSegment topPiece = null;
         int total = roomSmallCount + roomMediumCount + roomLargeCount;
 
@@ -906,7 +986,8 @@ public class ClimbMapGenerator : MonoBehaviour
             PlatformSegment[] tier = k < roomSmallCount ? smallPlatforms
                 : k < roomSmallCount + roomMediumCount ? mediumPlatforms : largePlatforms;
             float targetTop = baseY + roomStepRise * (k + 1);
-            var piece = PickTier(rng, tier, root, new Vector3(2f, roomStepRise * (k + 1), 2f), "Room");
+            var piece = PickTierDistinct(rng, tier, root, new Vector3(2f, roomStepRise * (k + 1), 2f), "Room", used);
+            if (piece == null) break; // 청크 내 중복 금지
             Bounds pb = piece.WorldBounds;
             var half = new Vector2(pb.extents.x, pb.extents.z);
 
@@ -986,6 +1067,82 @@ public class ClimbMapGenerator : MonoBehaviour
                        ground, laneIndex, ref ordinal, ref footprint, ref made);
     }
 
+    // ---- 지름길형: 정직한 우회로(점프 가능) + 구조물 1개로 여는 직선 단절 ----
+    // 진입 -> 착지 발판 직선 거리 = plan.Gap(점프 불가). 옆으로 부푼 소 티어 아치가 정직 루트.
+    // 구조물을 단절에 놓으면 우회로를 건너뛴다(지름길이 열린다).
+    void SectionShortcut(System.Random rng, Transform root, int ground, int laneIndex, float heading,
+                         ChunkPlan plan, ref Vector3 cursor, ref int ordinal, ref Bounds footprint, ref int made)
+    {
+        Vector3 F = Fwd(heading); Vector3 L = Lat(heading);
+        var used = new HashSet<PlatformSegment>();
+        float side = rng.NextDouble() < 0.5 ? 1f : -1f;
+        float rise = Range(rng, shortcutRise);
+        Vector3 entry = cursor;
+
+        // 우회로: 옆으로 부푼 아치(소 티어, 중복 없음). 진행분은 단절 폭을 등분.
+        int steps = Mathf.Max(2, plan.Steps);
+        for (int i = 1; i <= steps; i++)
+        {
+            float t = i / (float)(steps + 1);
+            var p = PickTierDistinct(rng, smallPlatforms, root, new Vector3(1.7f, 0.4f, 1.7f), "Detour", used);
+            if (p == null) break; // 청크 내 중복 금지
+            var target = entry + F * (plan.Gap * t)
+                               + L * (side * shortcutDetourWidth * Mathf.Sin(Mathf.PI * t))
+                               + Vector3.up * (rise * t);
+            Chain(p, target, ground, laneIndex, ref ordinal, ref footprint, ref made);
+        }
+
+        // 착지 발판(중 티어): 우회로 합류점이자 지름길 건너편.
+        var land = PickTierDistinct(rng, mediumPlatforms, root, new Vector3(2.6f, 0.5f, 2.6f), "ShortcutLand", used);
+        if (land == null) land = Slab(root, new Vector3(2.6f, 0.5f, 2.6f), "ShortcutLand");
+        cursor = Chain(land, entry + F * plan.Gap + Vector3.up * rise,
+                       ground, laneIndex, ref ordinal, ref footprint, ref made);
+    }
+
+    // ---- 대단절형: 여러 플레이어의 구조물을 이어야 건너는 큰 단절 ----
+    // 구조물 하나가 ~3m 이므로 grandGap(9~13m)은 2~4개를 이어 붙여야 한다(협동 게이트).
+    void SectionGrandGap(System.Random rng, Transform root, int ground, int laneIndex, float heading,
+                         ChunkPlan plan, ref Vector3 cursor, ref int ordinal, ref Bounds footprint, ref int made)
+    {
+        Vector3 F = Fwd(heading); Vector3 L = Lat(heading);
+        var used = new HashSet<PlatformSegment>();
+
+        // 이쪽 끝(중 티어).
+        var edge = PickTierDistinct(rng, mediumPlatforms, root, new Vector3(2.6f, 0.5f, 2.6f), "GapEdge", used);
+        if (edge == null) edge = Slab(root, new Vector3(2.6f, 0.5f, 2.6f), "GapEdge");
+        cursor = Chain(edge, cursor + F * 1.6f + L * Jit(rng, 0.4f) + Vector3.up * 0.3f,
+                       ground, laneIndex, ref ordinal, ref footprint, ref made);
+        Bounds nearB = edge.WorldBounds;
+
+        // 대단절: 건너편 착지(중 티어). 대각 진행 모서리 지름길은 실측 보정으로 차단.
+        var land = PickTierDistinct(rng, mediumPlatforms, root, new Vector3(2.6f, 0.5f, 2.6f), "GapLand", used);
+        if (land == null) land = Slab(root, new Vector3(2.6f, 0.5f, 2.6f), "GapLand");
+        land.transform.position += (cursor + F * plan.Gap + L * Jit(rng, 0.4f) + Vector3.up * 0.4f) - land.EntryWorld;
+        for (int it = 0; it < 2; it++)
+        {
+            Bounds fb = land.WorldBounds;
+            float gx = Mathf.Max(0f, Mathf.Max(fb.min.x - nearB.max.x, nearB.min.x - fb.max.x));
+            float gz = Mathf.Max(0f, Mathf.Max(fb.min.z - nearB.max.z, nearB.min.z - fb.max.z));
+            float hull = Mathf.Sqrt(gx * gx + gz * gz);
+            if (hull >= plan.Gap - 0.05f) break;
+            land.transform.position += F * (plan.Gap - hull);
+        }
+        Register(land, ground, laneIndex, ref ordinal, ref footprint, ref made, true);
+        cursor = land.ExitWorld;
+    }
+
+    // ---- 랜드마크형: 아주 큰 에셋 하나(대 티어 x landmarkScale) ----
+    void SectionLandmark(System.Random rng, Transform root, int ground, int laneIndex, float heading,
+                         ref Vector3 cursor, ref int ordinal, ref Bounds footprint, ref int made)
+    {
+        Vector3 F = Fwd(heading);
+        var seg = PickTier(rng, largePlatforms, root, new Vector3(4f, 0.6f, 4f), "Landmark");
+        seg.transform.localScale *= Mathf.Max(1f, landmarkScale);
+        float dy = Range(rng, landmarkRise);
+        cursor = Chain(seg, cursor + F * 1.8f + Vector3.up * dy,
+                       ground, laneIndex, ref ordinal, ref footprint, ref made);
+    }
+
     // ---- 회전형: 자전하는 대 티어 발판들의 연속. ----
     // 각 발판이 자기 중심 Y축으로 회전(서버시간 순수함수 + 시드 위상 -> 전 피어 동일).
     // 배치는 중심 간격 기준: 이웃 스윕 원(회전 궤적 반지름 = XZ 대각 절반)이 spinGapMargin
@@ -996,13 +1153,15 @@ public class ClimbMapGenerator : MonoBehaviour
                      ref Vector3 cursor, ref int ordinal, ref Bounds footprint, ref int made)
     {
         Vector3 F = Fwd(heading); Vector3 L = Lat(heading);
+        var used = new HashSet<PlatformSegment>();
         float prevSweep = 0f;      // 0 = 첫 조각(커서는 일반 발판 모서리)
         Vector3 prevCenter = cursor;
         float prevTop = cursor.y;
 
         for (int i = 0; i < plan.Steps; i++)
         {
-            var seg = PickTier(rng, largePlatforms, root, new Vector3(3.5f, 0.5f, 3.5f), "Spin");
+            var seg = PickTierDistinct(rng, largePlatforms, root, new Vector3(3.5f, 0.5f, 3.5f), "Spin", used);
+            if (seg == null) break; // 청크 내 중복 금지
             Bounds b = seg.WorldBounds;
             float sweep = 0.5f * Mathf.Sqrt(b.size.x * b.size.x + b.size.z * b.size.z);
 
