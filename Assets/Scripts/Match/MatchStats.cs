@@ -79,7 +79,10 @@ namespace RouletteParty.Match
     /// </summary>
     public class MatchStatsTracker
     {
-        private const double BAIT_WINDOW = 6.0; // 접촉 -> 낙하 귀속 유효 시간(초)
+        /// <summary>접촉 -> 낙하/탈락 귀속 유효 시간(초). MatchManager 가 ScoringConfig.baitWindowSeconds 로 설정.</summary>
+        public double BaitWindow = 6.0;
+        /// <summary>점수용 영향의 같은 (설치자, 피해자) 쌍 라운드당 인정 한도(파밍 방지). ScoringConfig.baitRepeatLimit.</summary>
+        public int ScoreRepeatLimit = 2;
 
         private struct TouchMark { public ulong Owner; public double Time; }
 
@@ -100,6 +103,15 @@ namespace RouletteParty.Match
         private readonly Dictionary<ulong, int> _baitedByVictim = new Dictionary<ulong, int>();
         private readonly List<DeathEvent> _deathEvents = new List<DeathEvent>();
 
+        // ---- 점수용 유효 영향(투명 구조물 영향 점수 입력) ----
+        // 낚시왕 통계와 판정이 다르다: 탈락(died)만 인정, 셀프 낚시 제외, 같은 쌍 반복 제한.
+        private readonly Dictionary<ulong, int> _scoreBaitsByOwner = new Dictionary<ulong, int>();
+        private readonly Dictionary<(ulong owner, ulong victim), int> _scoreBaitPairs
+            = new Dictionary<(ulong, ulong), int>();
+
+        /// <summary>이번 라운드 유효 투명 구조물 영향 횟수(점수 입력, MatchScoring.RoundPerformance.BaitKills).</summary>
+        public int ScoreBaitsOf(ulong owner) => _scoreBaitsByOwner.TryGetValue(owner, out int n) ? n : 0;
+
         private ulong _fallVictim = RoundStats.None;
         private float _fallHeight;
         private int   _deaths;
@@ -114,6 +126,8 @@ namespace RouletteParty.Match
             _baitsByOwner.Clear();
             _baitedByVictim.Clear();
             _deathEvents.Clear();
+            _scoreBaitsByOwner.Clear();
+            _scoreBaitPairs.Clear();
             _fallVictim = RoundStats.None;
             _fallHeight = 0f;
             _deaths = 0;
@@ -142,13 +156,26 @@ namespace RouletteParty.Match
             }
 
             // 직전 투명 구조물 접촉이 유효 시간 안이면 설치자에게 낚시 1회 귀속.
-            if (_lastTouch.TryGetValue(victim, out var mark) && serverTime - mark.Time <= BAIT_WINDOW)
+            if (_lastTouch.TryGetValue(victim, out var mark) && serverTime - mark.Time <= BaitWindow)
             {
                 _baitsByOwner.TryGetValue(mark.Owner, out int b);
                 _baitsByOwner[mark.Owner] = b + 1;
 
                 _baitedByVictim.TryGetValue(victim, out int v);
                 _baitedByVictim[victim] = v + 1;
+
+                // 점수용 유효 영향: 탈락만, 설치자 != 피해자, 같은 쌍 반복 제한(하나의 접촉 = 하나의 탈락).
+                if (died && mark.Owner != victim)
+                {
+                    var pair = (mark.Owner, victim);
+                    _scoreBaitPairs.TryGetValue(pair, out int used);
+                    if (used < ScoreRepeatLimit)
+                    {
+                        _scoreBaitPairs[pair] = used + 1;
+                        _scoreBaitsByOwner.TryGetValue(mark.Owner, out int sb);
+                        _scoreBaitsByOwner[mark.Owner] = sb + 1;
+                    }
+                }
 
                 _lastTouch.Remove(victim); // 접촉 1회당 1회만 귀속
             }

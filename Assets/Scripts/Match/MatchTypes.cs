@@ -33,8 +33,15 @@ namespace RouletteParty.Match
         public int   SpawnIndex;
         public bool  Alive = true;
         public float DeathHeight;    // 탈락 지점 높이 -> 점수 계산에 사용
-        public bool  ReachedTop;     // 정상(y >= mapHeight) 도달 여부
-        public float TopTime;        // 정상 도달 시각(PLAY 경과 초, 동률 tie-break)
+        public bool  ReachedTop;     // 정상(도착 청크) 도달 여부
+        public float TopTime;        // 최초 정상 도달 시각(PLAY 시작 기준 경과 초, 시간 점수·동률 tie-break)
+
+        // ---- 점수 수집(개편안): 라운드 중 사실만 기록, 계산은 MatchScoring 이 종료 시 1회 ----
+        public float BestY;          // 라운드 최고 발끝 높이(진행도·안정성 입력). 탈락·부활에도 유지 — 낙하 추적용 ApexY 와 별개
+        public int   Deaths;         // 라운드 탈락 횟수(반복 탈락 감점·안정성 보너스 입력)
+        public int   MaxChunk;       // 도달한 최고 청크 순번(0 = 시작 청크만). 상위 진입 시 하위 자동 인정의 기준
+        public readonly System.Collections.Generic.List<int> ChunkPlacements
+            = new System.Collections.Generic.List<int>(); // 도달 청크별 선착 순번(1 = 최초)
 
         // ---- 서버 낙하 추적(탈락 규칙 ①: 공중 낙하 거리, MatchManager.SamplePlayers) ----
         public float ApexY;          // 낙하 기준 최고점(발끝 기준). 텔레포트/착지 시 리셋
@@ -51,6 +58,10 @@ namespace RouletteParty.Match
             ApexY = 0f;
             LastY = 0f;
             FallStillTime = 0f;
+            BestY = 0f;
+            Deaths = 0;
+            MaxChunk = 0;
+            ChunkPlacements.Clear();
         }
     }
 

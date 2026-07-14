@@ -105,6 +105,11 @@ namespace RouletteParty.Match
         private readonly MatchStatsTracker _stats = new MatchStatsTracker(); // 서버 전용 라운드 이벤트 로거
         private bool _graceApplied;
 
+        // ---- 점수 수집(개편안) 서버 전용 상태: 라운드 중 사실만 기록, 계산은 EndPlayEvaluate 1회 ----
+        private int[]  _chunkArrivals = System.Array.Empty<int>(); // 청크 k 에 도달한 인원 수(다음 도달자의 선착 순번)
+        private float  _playRoundDuration; // 최초 설정된 이번 라운드 전체 시간(시간 점수 분모, finishGrace 단축 무시)
+        private double _playStartTime;     // PLAY 시작 서버 시각(정상 도달 경과 시각의 기준)
+
         // 이번 PREP 에 사용한 설치 수(이월 없음 규칙: PREP 진입마다 리셋)
         private readonly Dictionary<ulong, int> _prepVisibleUsed   = new Dictionary<ulong, int>();
         private readonly Dictionary<ulong, int> _prepInvisibleUsed = new Dictionary<ulong, int>();
@@ -323,7 +328,13 @@ namespace RouletteParty.Match
         private void BeginPlay()
         {
             _graceApplied = false;
+            _stats.BaitWindow = _scoring.baitWindowSeconds;      // 점수 설정 -> 수집기 주입(설정은 ScoringConfig 한 곳)
+            _stats.ScoreRepeatLimit = _scoring.baitRepeatLimit;
             _stats.BeginRound();
+            _playRoundDuration = EffectiveDuration(MatchPhase.Play);
+            _playStartTime = NetworkManager.ServerTime.Time;
+            var gen = ClimbMapGenerator.Instance;
+            _chunkArrivals = new int[(gen != null ? gen.ScoringChunkCount : 0) + 1];
             int i = 0, n = NetworkManager.ConnectedClientsList.Count;
             foreach (var c in NetworkManager.ConnectedClientsList)
             {
@@ -376,9 +387,10 @@ namespace RouletteParty.Match
         // PLAY 중 서버 샘플링: 낙하 탈락 규칙 ① 추적 + 정상 도달 감지(위치는 READ 만).
         private void SamplePlayers(double now)
         {
-            float dur = EffectiveDuration(MatchPhase.Play);
-            float elapsed = dur - (float)(_phaseEndTime.Value - now);
+            // 시작 시각 기준 실제 경과(초). 종료 시각 역산이 아니라서 finishGrace 단축에 왜곡되지 않는다.
+            float elapsed = (float)(now - _playStartTime);
             float top = MapHeight;
+            var gen = ClimbMapGenerator.Instance;
 
             foreach (var c in NetworkManager.ConnectedClientsList)
             {
@@ -387,6 +399,7 @@ namespace RouletteParty.Match
                 if (po == null) continue;
 
                 float y = FootYOf(po); // 발끝 기준(HUD 표시·채점과 동일 기준)
+                if (y > pr.BestY) pr.BestY = y; // 진행도·안정성 입력. 낙하 추적용 ApexY 와 별개(부활에도 유지)
 
                 // ---- 낙하 탈락 규칙 ① (서버 직접 추적): 공중 낙하 거리 >= _lethalAirFall ----
                 // 접지 상태는 소유 클라만 알 수 있으므로 수직 속도로 "자유낙하"만 걸러낸다:
@@ -412,9 +425,19 @@ namespace RouletteParty.Match
                     continue;
                 }
 
+                // 청크 선착순 기록: 발판 영역 -> 청크 순번. 상위 청크 진입 시 건너뛴 하위 청크도
+                // 도달로 인정한다(구조물 지름길이 게임 컨셉이므로 스킵을 벌하지 않음).
+                if (gen != null && _chunkArrivals.Length > 1 &&
+                    gen.TryGetChunkAt(new Vector3(po.transform.position.x, y, po.transform.position.z), out int chunk) &&
+                    chunk > pr.MaxChunk)
+                {
+                    for (int k = pr.MaxChunk + 1; k <= chunk && k < _chunkArrivals.Length; k++)
+                        pr.ChunkPlacements.Add(++_chunkArrivals[k]);
+                    pr.MaxChunk = chunk;
+                }
+
                 // 도달 판정: 도착 청크(큰 발판) 위에 올라서면 완주. 도착 청크가 없는 구성
                 // (레거시 균일 체인)에서는 기존 높이 기준(y >= top)으로 폴백.
-                var gen = ClimbMapGenerator.Instance;
                 bool arrived = gen != null && gen.HasFinishPlates
                     ? gen.IsAtFinish(new Vector3(po.transform.position.x, y, po.transform.position.z))
                     : y >= top;
@@ -461,6 +484,7 @@ namespace RouletteParty.Match
                 po != null ? po.transform.position : Vector3.zero);
 
             pr.Alive = false;
+            pr.Deaths++; // 반복 탈락 감점·안정성 보너스 입력
             pr.DeathHeight = Mathf.Max(0f, FootYOf(po)); // 발끝 기준
             SetDead(pr.ClientId, true);
             _aliveCount.Value = Mathf.Max(0, _aliveCount.Value - 1);
@@ -612,7 +636,9 @@ namespace RouletteParty.Match
         }
 
         // ============================ 점수 (하이라이트 진입 시) ============================
-        // 라운드 점수 = 종료 시점 높이/mapHeight x heightScoreMax + 순위 보너스. 3라운드 누적.
+        // 라운드 점수(개편안) = 진행도(최고 0.7 + 최종 0.3) + 정상 도달 시간 + 청크 선착순
+        //                    + 참가자 수 비례 순위 + 안정성 + 투명 구조물 영향 - 반복 탈락 감점.
+        // 공식은 MatchScoring.RoundScore 한 곳에만 존재. 여기서는 수집된 사실을 입력으로 조립만 한다.
         private void EndPlayEvaluate()
         {
             float top = MapHeight;
@@ -643,14 +669,24 @@ namespace RouletteParty.Match
 
             for (int i = 0; i < rows.Count; i++)
             {
+                var pr = _players[rows[i].id];
                 var perf = new RoundPerformance
                 {
-                    NormalizedHeight = top <= 0f ? 0f : rows[i].finalY / top,
+                    // 정상 도달자는 최고 높이를 정상으로 고정(개편안 4.1). 최고 높이는 탈락·부활에도 유지.
+                    BestHeight01  = top <= 0f ? 0f : (pr.ReachedTop ? 1f : Mathf.Clamp01(pr.BestY / top)),
+                    FinalHeight01 = top <= 0f ? 0f : rows[i].finalY / top,
                     Rank = i,
+                    PlayerCount = rows.Count,
                     ReachedTop = rows[i].topped,
                     TopTime = rows[i].topTime,
+                    RoundDuration = _playRoundDuration,
+                    ChunkPlacements = pr.ChunkPlacements.ToArray(),
+                    Deaths = pr.Deaths,
+                    BaitKills = _stats.ScoreBaitsOf(rows[i].id),
                 };
-                int totalScore = MatchScoring.RoundScore(perf, _scoring);
+                var breakdown = MatchScoring.RoundScore(perf, _scoring);
+                int totalScore = breakdown.Total;
+                Debug.Log($"[Score] R{_round.Value} #{i + 1} client={rows[i].id} {breakdown}"); // 내역은 호스트 로그로만(UI 는 총점)
 
                 _totalScore[rows[i].id] = (_totalScore.TryGetValue(rows[i].id, out int acc) ? acc : 0) + totalScore;
                 _results.Add(new RoundResult

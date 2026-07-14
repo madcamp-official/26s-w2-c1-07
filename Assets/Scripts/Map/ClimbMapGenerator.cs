@@ -39,6 +39,7 @@ public class ClimbMapGenerator : MonoBehaviour
         public int Id;             // 0 = 시작 섬, 1.. = 발판(생성 순서)
         public int LaneIndex;      // -1 = 시작 섬
         public int Ordinal;        // 레인 내 순번(0 = 첫 발판)
+        public int ChunkIndex;     // 점수 선착순용 청크 순번: 0 = 시작 섬/진입, 1..n = 레인 청크, n+1 = 도착 청크
         public Bounds InnerBounds; // 발판 실제 렌더 AABB
         public Bounds AreaBounds;  // InnerBounds + regionPadding (영역 판정 기준)
     }
@@ -256,6 +257,19 @@ public class ClimbMapGenerator : MonoBehaviour
         return regionId >= 0;
     }
 
+    /// <summary>점수 선착순용 청크 수(1..이 값, 마지막 = 도착 청크). 섹션 레인이 아니면 0(선착순 비활성).</summary>
+    public int ScoringChunkCount { get; private set; }
+
+    /// <summary>위치가 속한 발판의 청크 순번 조회(1..ScoringChunkCount, MatchManager 선착순 판정용).
+    /// 시작 섬/진입 발판(0)과 영역 밖은 false. 청크 순번은 시드 기반 생성 순서라 전 피어 동일.</summary>
+    public bool TryGetChunkAt(Vector3 p, out int chunk)
+    {
+        chunk = 0;
+        if (!TryGetRegionAt(p, out int regionId)) return false;
+        chunk = _regions[regionId].ChunkIndex; // Id == _regions 인덱스(등록 순서)
+        return chunk > 0;
+    }
+
     // ============================ 내부 상태 ============================
     int _builtSeed = int.MinValue;
     bool _built;
@@ -335,6 +349,8 @@ public class ClimbMapGenerator : MonoBehaviour
         _structureRoot.transform.SetParent(transform, false);
         _regions.Clear();
         _fallbackMatIndex = 0;
+        _regionChunk = 0;
+        ScoringChunkCount = useSectionLanes ? Mathf.Max(1, chunksPerLane) + 1 : 0;
 
         int ground = LayerMask.NameToLayer("Ground");
 
@@ -371,6 +387,7 @@ public class ClimbMapGenerator : MonoBehaviour
             // 2) 도착 청크는 하나(시작 청크처럼): 스파인 끝, 가장 높은 레인 끝 기준 높이.
             float lastHeading = _planHeading[_planHeading.Length - 1];
             float plateTop = maxEndY + 0.45f;
+            _regionChunk = ScoringChunkCount; // 도착 청크(+ 합류 디딤돌) = 마지막 청크 순번
             BuildSharedFinish(plateTop, lastHeading, ground, ref footprint, ref made);
 
             // 3) 레인별 합류: 디딤돌로 도착 청크 입구까지(수평 + 높이 동시 접속).
@@ -668,6 +685,9 @@ public class ClimbMapGenerator : MonoBehaviour
         return seg;
     }
 
+    // 발판 등록 시 부여할 청크 순번(점수 선착순용). 각 빌드 단계가 등록 전에 설정한다.
+    int _regionChunk;
+
     // 조각 공통 등록: 레이어/정적/영역/footprint. boundsOverride = 회전체(교차로)용 정적 AABB.
     void Register(PlatformSegment seg, int ground, int laneIndex, ref int ordinal,
                   ref Bounds footprint, ref int made, bool makeStatic, Bounds? boundsOverride = null)
@@ -677,7 +697,7 @@ public class ClimbMapGenerator : MonoBehaviour
         Bounds inner = boundsOverride ?? seg.WorldBounds;
         _regions.Add(new PlatformRegion
         {
-            Id = _regions.Count, LaneIndex = laneIndex, Ordinal = ordinal++,
+            Id = _regions.Count, LaneIndex = laneIndex, Ordinal = ordinal++, ChunkIndex = _regionChunk,
             InnerBounds = inner, AreaBounds = Expanded(inner, regionPadding),
         });
         footprint.Encapsulate(inner.min);
@@ -772,12 +792,14 @@ public class ClimbMapGenerator : MonoBehaviour
         Vector3 cursor = new Vector3(islandWidth * 0.5f, 0f, laneZ);
 
         // 진입 발판(중 티어): 시작 청크(섬) 가장자리에서 startGap(항상 점프 가능).
+        _regionChunk = 0; // 진입 발판 = 시작 청크 소속(선착순 대상 아님)
         var first = RestPiece(rng, mediumPlatforms, laneRoot, "Entry", out bool firstStatic);
         cursor = Chain(first, cursor + Fwd(_planHeading[0]) * startGap + Vector3.up * 0.45f,
                        ground, laneIndex, ref ordinal, ref footprint, ref made, firstStatic);
 
         for (int chunkIdx = 0; chunkIdx < _plan.Length; chunkIdx++)
         {
+            _regionChunk = chunkIdx + 1; // 이 청크의 발판(경계 디딤돌·휴게 포함) = 청크 순번 chunkIdx+1
             var plan = _plan[chunkIdx];
             float heading = _planHeading[chunkIdx];
             var bandOrigin = _spine[chunkIdx] + Lat(heading) * laneOff; // 이 청크 밴드의 레인측 시작점
