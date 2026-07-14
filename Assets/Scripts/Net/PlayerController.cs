@@ -65,7 +65,8 @@ public class PlayerController : NetworkBehaviour
     public float aimDistance = 4.5f;
     [Tooltip("카메라 어깨 오프셋(+우측, m). 0 = 카메라가 정후방이라 플레이어와 조준점이 화면 정중앙에 온다.")]
     public float aimShoulder = 0f;
-    public float aimHeight = 1.6f;
+    [Tooltip("카메라가 바라보는 기준 높이(m). 낮출수록 시점이 아래를 향해 화면에서 플레이어가 위로 올라온다.")]
+    public float aimHeight = 1.1f;
     [Tooltip("조준 레이(설치/확장용) 최대 거리.")]
     public float aimRayDistance = 500f;
 

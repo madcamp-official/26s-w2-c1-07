@@ -116,7 +116,11 @@ namespace RouletteParty.UI
 
         private static Font AcquireFont()
         {
-            // 1) 한글 가능한 OS 폰트 우선(설치돼 있으면 그대로 사용).
+            // 0) 프로젝트 번들 폰트(SOYO 메이플, 빌드/전 피어 동일 보장) 최우선.
+            var bundled = UiKit.Font;
+            if (bundled != null) return bundled;
+
+            // 1) 한글 가능한 OS 폰트(번들 누락 시 폴백).
             foreach (var name in KoreanFonts)
             {
                 Font f = null;
@@ -209,18 +213,19 @@ namespace RouletteParty.UI
             _deadPanelGo = deadPanel.gameObject; // 패널째 켜고 끈다(텍스트만 끄면 패널이 남음)
             _deadPanelGo.SetActive(false);
 
-            // --- 플레이 루트 ---
+            // --- 플레이 루트(목표 문구, 화면 중앙 하단에서만 잠깐) ---
             _playRoot = MakeRect(_canvasRT, "PlayRoot");
             SetRect(_playRoot, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0.5f, 0f),
-                    new Vector2(1000, 170), new Vector2(0, 40));
+                    new Vector2(1000, 70), new Vector2(0, 150));
             _playObjective = MakeText(_playRoot, "", 40, TextAnchor.MiddleCenter, Color.white);
             _playObjective.fontStyle = FontStyle.Bold;
-            SetRect(_playObjective.rectTransform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0.5f, 1f),
-                    new Vector2(1000, 56), new Vector2(0, -4));
-            var playInfoPanel = MakeCream(_playRoot);
-            SetRect(playInfoPanel.rectTransform, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0.5f, 0f),
-                    new Vector2(380, 46), new Vector2(0, 12));
-            _playSurvive = MakeText(playInfoPanel.transform, "", 24, TextAnchor.MiddleCenter, UiKit.Ink, false);
+            Stretch(_playObjective.rectTransform);
+
+            // --- 플레이 정보 알약(상단, 라운드/타이머 패널 바로 아래): 현재 높이 · 등수 · 생존 수 ---
+            var playInfoPanel = MakeCream(_canvasRT);
+            SetRect(playInfoPanel.rectTransform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0.5f, 1f),
+                    new Vector2(440, 44), new Vector2(0, -150));
+            _playSurvive = MakeText(playInfoPanel.transform, "", 22, TextAnchor.MiddleCenter, UiKit.Ink, false);
             _playSurvive.fontStyle = FontStyle.Bold;
             Stretch(_playSurvive.rectTransform);
             _playInfoGo = playInfoPanel.gameObject;
@@ -505,10 +510,23 @@ namespace RouletteParty.UI
             _playObjective.gameObject.SetActive(showObjective);
             if (showObjective) _playObjective.text = "더 높이 올라가라!";
             if (_playInfoGo != null) _playInfoGo.SetActive(true);
-            // 현재 높이(점수의 근거)와 생존 수. 체력은 비공개 규칙이라 절대 표시하지 않는다.
+            // 현재 높이(점수의 근거) · 등수 · 생존 수. 체력은 비공개 규칙이라 절대 표시하지 않는다.
+            int rank = LocalRank();
+            string rankStr = rank > 0 ? $"   {rank}등" : "";
             _playSurvive.text = localDead
-                ? "생존 " + m.AliveCount
-                : $"높이 {Mathf.Max(0f, localY):0.0} m   생존 {m.AliveCount}";
+                ? $"관전 중{rankStr}   생존 {m.AliveCount}"
+                : $"높이 {Mathf.Max(0f, localY):0.0} m{rankStr}   생존 {m.AliveCount}";
+        }
+
+        // 로컬 플레이어의 현재 등수(누적 점수 기준, _standings 는 내림차순 정렬됨). 없으면 0.
+        private int LocalRank()
+        {
+            var nm = NetworkManager.Singleton;
+            if (nm == null) return 0;
+            ulong me = nm.LocalClientId;
+            for (int i = 0; i < _standings.Count; i++)
+                if (_standings[i].Id == me) return i + 1;
+            return 0;
         }
 
         private void RenderHighlight(MatchManager m)
@@ -700,6 +718,7 @@ namespace RouletteParty.UI
         private void HideAllPhaseRoots()
         {
             if (_playRoot != null) _playRoot.gameObject.SetActive(false);
+            if (_playInfoGo != null) _playInfoGo.SetActive(false); // 상단 알약은 _playRoot 밖(캔버스 직속)이라 따로 끈다
             if (_highlightRoot != null) _highlightRoot.gameObject.SetActive(false);
             if (_resultRoot != null) _resultRoot.gameObject.SetActive(false);
         }

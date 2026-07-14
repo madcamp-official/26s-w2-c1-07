@@ -264,7 +264,7 @@ MonoBehaviour:
   showBoundaryWalls: 0
   finishChunkSize: {x: 10, y: 10}
   finishDetectHeight: 2.5
-  showFinishMarker: 1
+  showFinishMarker: 0
   finishMaterial: {fileID: 2100000, guid: 146cf447f94ed524bbdaebbf4cecb7a8, type: 2}
   useSectionLanes: 1
   chunksPerLane: 5
@@ -295,6 +295,7 @@ MonoBehaviour:
   - {fileID: 1622149145969614960, guid: b72792a4493b05b4097eeb5dad5c2b7b, type: 3}
   - {fileID: 1572055631111915911, guid: 0fcba67a65295d048b4dc97963dfbc28, type: 3}
   tiltChance: 1
+  tiltMaxAngle: 22
   overlapCullDepth: 0.25
   stairsForward: {x: 1.5, y: 2.1}
   stairsRise: {x: 0.5, y: 0.7}

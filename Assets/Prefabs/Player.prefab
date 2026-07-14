@@ -123,7 +123,7 @@ MonoBehaviour:
   aimMaxPitch: 70
   aimDistance: 4.5
   aimShoulder: 0
-  aimHeight: 1.6
+  aimHeight: 1.1
   aimRayDistance: 500
   lookResetPitch: 0
   flySpeed: 8

@@ -274,6 +274,7 @@ namespace RouletteParty.UI
             if (_view == View.InGame) return;
 
             ImguiScale.Apply(); // 이하 좌표는 1080p 기준 가상 픽셀
+            if (UiKit.Font != null) GUI.skin.font = UiKit.Font; // 번들 폰트(스타일 font=null 은 이 스킨 폰트 사용)
             EnsureStyles();
 
             float w = ImguiScale.VirtualWidth, h = ImguiScale.VirtualHeight;

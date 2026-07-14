@@ -166,6 +166,7 @@ namespace RouletteParty.Core
             EnsureStyles();
 
             ImguiScale.Apply(); // 이하 좌표는 1080p 기준 가상 픽셀
+            if (UiKit.Font != null) GUI.skin.font = UiKit.Font; // 번들 폰트
             const float W = 560f, H = 620f;
             _panelRect = new Rect((ImguiScale.VirtualWidth - W) * 0.5f, (ImguiScale.VirtualHeight - H) * 0.5f, W, H);
 

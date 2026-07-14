@@ -136,8 +136,10 @@ public class ClimbMapGenerator : MonoBehaviour
     [SerializeField] private PlatformSegment[] mediumPlatforms;
     [Tooltip("대(그 이상): 가구 방 최상단, 랜드마크(x landmarkScale).")]
     [SerializeField] private PlatformSegment[] largePlatforms;
-    [Tooltip("발판이 90도 회전(눕힘/세움)된 형태로 나올 확률. 모든 정적 발판 대상(회전/다리 조각·도착 청크 제외).")]
+    [Tooltip("발판이 무작위 각도로 기울어질 확률. 모든 정적 발판 대상(회전/다리 조각·도착 청크 제외).")]
     [SerializeField, Range(0f, 1f)] private float tiltChance = 1f;
+    [Tooltip("무작위 기울기 최대 각도(도, 상하 pitch·roll ±). 클수록 난잡하지만 너무 크면(> ~40도) 미끄러져 못 선다. 좌우 회전(yaw)은 항상 0~360 무작위.")]
+    [SerializeField, Range(0f, 60f)] private float tiltMaxAngle = 22f;
 
     [Header("발판 겹침 정리 (생성 후처리)")]
     [Tooltip("발판 AABB 가 세 축 모두 이 깊이(m) 이상 서로 관통하면 나중에 생성된 쪽을 삭제한다(생성 순서 기준 결정론 규칙 = 전 피어 동일). 단, 삭제로 레인 경로가 점프 불가가 되는 경우(계단형 겹침)는 예외적으로 유지한다. 시작 섬·도착 청크는 항상 유지. 0 이하 = 비활성.")]
@@ -854,14 +856,17 @@ public class ClimbMapGenerator : MonoBehaviour
 
     // 90도 틸트(눕힘/세움): tiltChance 확률로 X±90/Z±90 중 하나. 드로우 2 고정(확률과 무관하게 소비).
     // 체인 앵커/바운즈 측정 전에 호출해야 회전된 포즈 기준으로 배치된다.
+    // 무작위 기울기: 좌우 회전(yaw)은 0~360 완전 무작위(윗면은 위 유지 -> 착지 가능),
+    // 상하 기울기(pitch/roll)는 ±tiltMaxAngle 안에서 1도 단위보다 잘게 무작위 -> "난잡한" 배치.
+    // rng 소비 4회 고정(게이트 1 + x/y/z 3): tiltChance<1 이어도 이후 rng 정렬이 흐트러지지 않게 항상 4회 뽑는다.
     void ApplyTilt(System.Random rng, PlatformSegment seg)
     {
-        double tiltRoll = rng.NextDouble();
-        double variantRoll = rng.NextDouble();
-        if (tiltRoll >= tiltChance) return;
-        int v = (int)(variantRoll * 4.0) & 3; // X±90 / Z±90 중 하나
-        Vector3 axis = (v & 2) == 0 ? Vector3.right : Vector3.forward;
-        seg.transform.rotation = Quaternion.AngleAxis((v & 1) == 0 ? 90f : -90f, axis);
+        double gate = rng.NextDouble();
+        float pitch = ((float)rng.NextDouble() * 2f - 1f) * tiltMaxAngle;
+        float yaw   = (float)rng.NextDouble() * 360f;
+        float roll  = ((float)rng.NextDouble() * 2f - 1f) * tiltMaxAngle;
+        if (gate >= tiltChance) return;
+        seg.transform.rotation = Quaternion.Euler(pitch, yaw, roll);
     }
 
     // 진입/휴게/정상 발판: 티어 랜덤 + tiltChance 90도 회전(눕힘/세움) + 동적 조각 위상.

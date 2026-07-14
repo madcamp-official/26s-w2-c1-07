@@ -11,6 +11,20 @@ namespace RouletteParty.UI
     /// </summary>
     public static class UiKit
     {
+        // ================= 공용 폰트 =================
+        // 프로젝트 번들 폰트(Resources/Fonts/SoyoMaple = SOYO 메이플 볼드, 둥근 게임체).
+        // 없으면(에셋 누락) null 반환 -> 호출부가 OS 폰트/기본 폰트로 폴백.
+        private static Font s_font;
+        private static bool s_fontTried;
+        public static Font Font
+        {
+            get
+            {
+                if (!s_fontTried) { s_font = Resources.Load<Font>("Fonts/SoyoMaple"); s_fontTried = true; }
+                return s_font;
+            }
+        }
+
         // ================= UCH 팔레트 =================
         public static readonly Color Cream     = new Color(0.957f, 0.925f, 0.863f, 1f); // 패널 바탕(종이 느낌)
         public static readonly Color CreamDark = new Color(0.894f, 0.850f, 0.760f, 1f); // 행 교차/입력 필드
