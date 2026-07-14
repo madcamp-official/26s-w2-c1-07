@@ -47,7 +47,11 @@ namespace RouletteParty.UI
         private bool _nameSent;         // 접속 후 닉네임 RPC 1회 전송 플래그
 
         // IMGUI 스타일(1080p 가상 픽셀 기준, OnGUI 안에서 1회 생성)
-        private GUIStyle _stTitle, _stH2, _stLabel, _stSmall, _stBtn, _stBtnBig, _stInput, _stRow, _stPanel;
+        private GUIStyle _stTitle, _stH2, _stLabel, _stSmall, _stInput, _stRow, _stPanel, _stBannerText;
+        private readonly System.Collections.Generic.Dictionary<string, GUIStyle> _btnCache
+            = new System.Collections.Generic.Dictionary<string, GUIStyle>();
+        private readonly System.Collections.Generic.Dictionary<string, GUIStyle> _stripCache
+            = new System.Collections.Generic.Dictionary<string, GUIStyle>();
 
         private void Awake()
         {
@@ -274,9 +278,9 @@ namespace RouletteParty.UI
 
             float w = ImguiScale.VirtualWidth, h = ImguiScale.VirtualHeight;
 
-            // 배경 딤: 뒤 월드와 시각적으로 분리하되, 대기방 스테이지/스카이 배경이 비치게 옅게.
+            // 배경 딤: 패널이 불투명 크림이라 옅은 딤으로 충분(스테이지/스카이 배경 노출).
             Color old = GUI.color;
-            GUI.color = new Color(0f, 0f, 0f, _view == View.Waiting ? 0.30f : 0.45f);
+            GUI.color = new Color(0f, 0f, 0f, _view == View.Waiting ? 0.20f : 0.30f);
             GUI.DrawTexture(new Rect(0, 0, w, h), Texture2D.whiteTexture);
             GUI.color = old;
 
@@ -292,31 +296,92 @@ namespace RouletteParty.UI
         private void EnsureStyles()
         {
             if (_stTitle != null) return;
-            _stTitle  = new GUIStyle(GUI.skin.label)     { fontSize = 52, alignment = TextAnchor.MiddleCenter, fontStyle = FontStyle.Bold };
-            _stH2     = new GUIStyle(GUI.skin.label)     { fontSize = 28, alignment = TextAnchor.MiddleLeft };
+            // 얼티밋 치킨 호스 톤: 크림 패널 + 잉크 텍스트/테두리 + 채도 높은 버튼.
+            _stTitle  = new GUIStyle(GUI.skin.label)     { fontSize = 50, alignment = TextAnchor.MiddleCenter, fontStyle = FontStyle.Bold };
+            _stH2     = new GUIStyle(GUI.skin.label)     { fontSize = 28, alignment = TextAnchor.MiddleLeft, fontStyle = FontStyle.Bold };
             _stLabel  = new GUIStyle(GUI.skin.label)     { fontSize = 24 };
             _stSmall  = new GUIStyle(GUI.skin.label)     { fontSize = 20, wordWrap = true };
-            _stBtn    = new GUIStyle(GUI.skin.button)    { fontSize = 24 };
-            _stBtnBig = new GUIStyle(GUI.skin.button)    { fontSize = 30, fontStyle = FontStyle.Bold };
-            _stInput  = new GUIStyle(GUI.skin.textField) { fontSize = 28, alignment = TextAnchor.MiddleLeft };
             _stRow    = new GUIStyle(GUI.skin.label)     { fontSize = 26, richText = true };
+            _stTitle.normal.textColor = UiKit.Ink;
+            _stH2.normal.textColor    = UiKit.Ink;
+            _stLabel.normal.textColor = UiKit.Ink;
+            _stSmall.normal.textColor = UiKit.InkSoft;
+            _stRow.normal.textColor   = UiKit.Ink;
 
-            // 라운드 코너 다크 패널(HUD 와 같은 톤, UiKit 텍스처 9-slice).
+            // 배너 위 흰색 볼드(컬러 스트립 헤더 텍스트).
+            _stBannerText = new GUIStyle(GUI.skin.label)
+            { fontSize = 44, alignment = TextAnchor.MiddleCenter, fontStyle = FontStyle.Bold };
+            _stBannerText.normal.textColor = Color.white;
+
+            // 입력 필드: 밝은 바탕 + 잉크 테두리 + 잉크 텍스트.
+            _stInput = new GUIStyle(GUI.skin.textField)
+            {
+                fontSize = 28,
+                alignment = TextAnchor.MiddleLeft,
+                border = new RectOffset(UiKit.ImguiBorder, UiKit.ImguiBorder, UiKit.ImguiBorder, UiKit.ImguiBorder),
+                padding = new RectOffset(16, 16, 8, 8),
+            };
+            var inputTex = UiKit.BorderedTex(Color.white, UiKit.Ink);
+            _stInput.normal.background = inputTex;
+            _stInput.focused.background = inputTex;
+            _stInput.hover.background = inputTex;
+            _stInput.normal.textColor = UiKit.Ink;
+            _stInput.focused.textColor = UiKit.Ink;
+            _stInput.hover.textColor = UiKit.Ink;
+
+            // 크림 패널(잉크 테두리 9-slice).
             _stPanel = new GUIStyle(GUI.skin.box)
             {
                 border = new RectOffset(UiKit.ImguiBorder, UiKit.ImguiBorder, UiKit.ImguiBorder, UiKit.ImguiBorder),
-                padding = new RectOffset(26, 26, 20, 20),
+                padding = new RectOffset(30, 30, 24, 24),
             };
-            _stPanel.normal.background = UiKit.ImguiPanelTex;
+            _stPanel.normal.background = UiKit.BorderedTex(UiKit.Cream, UiKit.Ink);
+        }
 
-            // 텍스트 기본색 통일(어두운 패널 위 가독성).
-            Color main = new Color(0.96f, 0.97f, 1f, 1f);
-            Color dim  = new Color(0.72f, 0.78f, 0.88f, 1f);
-            _stTitle.normal.textColor = main;
-            _stH2.normal.textColor = main;
-            _stLabel.normal.textColor = main;
-            _stSmall.normal.textColor = dim;
-            _stRow.normal.textColor = main;
+        // 컬러 버튼(기본/호버/눌림 3상태, 잉크 테두리 + 흰색 볼드 텍스트). 색·크기별 캐시.
+        private GUIStyle Btn(Color fill, int fontSize)
+        {
+            string key = ColorUtility.ToHtmlStringRGB(fill) + fontSize;
+            if (_btnCache.TryGetValue(key, out var st)) return st;
+            st = new GUIStyle(GUI.skin.button)
+            {
+                fontSize = fontSize,
+                fontStyle = FontStyle.Bold,
+                border = new RectOffset(UiKit.ImguiBorder, UiKit.ImguiBorder, UiKit.ImguiBorder, UiKit.ImguiBorder),
+                padding = new RectOffset(14, 14, 8, 8),
+            };
+            Texture2D n, h, a;
+            UiKit.ButtonTex(fill, out n, out h, out a);
+            st.normal.background = n; st.hover.background = h; st.active.background = a; st.focused.background = n;
+            st.normal.textColor = Color.white; st.hover.textColor = Color.white;
+            st.active.textColor = Color.white; st.focused.textColor = Color.white;
+            _btnCache[key] = st;
+            return st;
+        }
+
+        // 컬러 스트립(배너 배경) 스타일. 색별 캐시.
+        private GUIStyle Strip(Color fill)
+        {
+            string key = ColorUtility.ToHtmlStringRGB(fill);
+            if (_stripCache.TryGetValue(key, out var st)) return st;
+            st = new GUIStyle(GUI.skin.box)
+            { border = new RectOffset(UiKit.ImguiBorder, UiKit.ImguiBorder, UiKit.ImguiBorder, UiKit.ImguiBorder) };
+            st.normal.background = UiKit.BorderedTex(fill, UiKit.Ink);
+            _stripCache[key] = st;
+            return st;
+        }
+
+        // 살짝 기울어진 컬러 배너(패널 상단에 겹쳐 그리는 헤더 탭 - 얼티밋 치킨 호스 특유의 장난기).
+        private void DrawBanner(Rect area, string text, Color fill, float tiltDeg, Color textColor)
+        {
+            Matrix4x4 old = GUI.matrix;
+            GUIUtility.RotateAroundPivot(tiltDeg, area.center);
+            GUI.Box(area, GUIContent.none, Strip(fill));
+            Color oc = _stBannerText.normal.textColor;
+            _stBannerText.normal.textColor = textColor;
+            GUI.Label(area, text, _stBannerText);
+            _stBannerText.normal.textColor = oc;
+            GUI.matrix = old;
         }
 
         private static Rect CenterRect(float w, float h, float pw, float ph) =>
@@ -325,23 +390,23 @@ namespace RouletteParty.UI
         // ---------------- 타이틀 ----------------
         private void DrawTitle(float w, float h)
         {
-            GUILayout.BeginArea(CenterRect(w, h, 560, 600), _stPanel);
-            GUILayout.Space(28);
-            GUILayout.Label("클라이밍 파티", _stTitle);
+            Rect panel = CenterRect(w, h, 580, 580);
+            GUILayout.BeginArea(panel, _stPanel);
+            GUILayout.Space(58); // 상단 배너(패널 밖에 겹침) 자리
             GUILayout.Label("참가 코드로 함께 오르는 파티 클라이밍", new GUIStyle(_stSmall) { alignment = TextAnchor.MiddleCenter });
-            GUILayout.Space(34);
+            GUILayout.Space(30);
 
             GUILayout.Label($"닉네임 (최대 {NAME_MAX}자)", _stLabel);
             _nickname = GUILayout.TextField(_nickname ?? "", NAME_MAX, _stInput, GUILayout.Height(52));
 
-            GUILayout.Space(28);
+            GUILayout.Space(30);
             bool busy = DeriveNet() == NetState.Busy;
             GUI.enabled = !busy;
-            if (GUILayout.Button("방 만들기", _stBtnBig, GUILayout.Height(62))) OnCreateRoom();
-            GUILayout.Space(10);
-            if (GUILayout.Button("방 참가", _stBtnBig, GUILayout.Height(62))) { _message = ""; _view = View.Join; }
-            GUILayout.Space(10);
-            if (GUILayout.Button("종료", _stBtn, GUILayout.Height(48))) QuitGame();
+            if (GUILayout.Button("방 만들기", Btn(UiKit.Red, 30), GUILayout.Height(64))) OnCreateRoom();
+            GUILayout.Space(12);
+            if (GUILayout.Button("방 참가", Btn(UiKit.Teal, 30), GUILayout.Height(64))) { _message = ""; _view = View.Join; }
+            GUILayout.Space(12);
+            if (GUILayout.Button("종료", Btn(UiKit.Grey, 24), GUILayout.Height(48))) QuitGame();
             GUI.enabled = true;
 
             GUILayout.FlexibleSpace();
@@ -349,15 +414,17 @@ namespace RouletteParty.UI
             if (!string.IsNullOrEmpty(_message)) GUILayout.Label(_message, _stSmall);
             GUILayout.Space(14);
             GUILayout.EndArea();
+
+            // 타이틀 배너(패널 상단에 겹쳐 살짝 기울임).
+            DrawBanner(new Rect(panel.x + 50, panel.y - 34, panel.width - 100, 82), "클라이밍 파티", UiKit.Yellow, -2f, UiKit.Ink);
         }
 
         // ---------------- 방 참가 ----------------
         private void DrawJoin(float w, float h)
         {
-            GUILayout.BeginArea(CenterRect(w, h, 560, 520), _stPanel);
-            GUILayout.Space(20);
-            GUILayout.Label("방 참가", _stTitle);
-            GUILayout.Space(20);
+            Rect panel = CenterRect(w, h, 580, 520);
+            GUILayout.BeginArea(panel, _stPanel);
+            GUILayout.Space(52);
 
             bool relayJoin = ConnectionService.Instance != null && ConnectionService.Instance.UseRelay;
             if (relayJoin)
@@ -376,15 +443,17 @@ namespace RouletteParty.UI
                 _joinPortText = GUILayout.TextField(_joinPortText ?? "", 6, _stInput, GUILayout.Height(52));
             }
 
-            GUILayout.Space(24);
-            if (GUILayout.Button("참가", _stBtnBig, GUILayout.Height(62))) OnJoin();
-            GUILayout.Space(10);
-            if (GUILayout.Button("뒤로", _stBtn, GUILayout.Height(48))) { _message = ""; _view = View.Title; }
+            GUILayout.Space(26);
+            if (GUILayout.Button("참가", Btn(UiKit.Teal, 30), GUILayout.Height(64))) OnJoin();
+            GUILayout.Space(12);
+            if (GUILayout.Button("뒤로", Btn(UiKit.Grey, 24), GUILayout.Height(48))) { _message = ""; _view = View.Title; }
 
             GUILayout.FlexibleSpace();
             if (!string.IsNullOrEmpty(_message)) GUILayout.Label(_message, _stSmall);
             GUILayout.Space(14);
             GUILayout.EndArea();
+
+            DrawBanner(new Rect(panel.x + 90, panel.y - 32, panel.width - 180, 74), "방 참가", UiKit.Teal, 1.5f, Color.white);
         }
 
         // ---------------- 접속 중 ----------------
@@ -403,7 +472,7 @@ namespace RouletteParty.UI
                             new GUIStyle(_stLabel) { alignment = TextAnchor.MiddleCenter });
             GUILayout.FlexibleSpace();
             // 릴레이 준비 단계는 중간 취소가 불가(비동기 완료 후 상태로 정리됨) -> 버튼 숨김.
-            if (!relayPrep && GUILayout.Button("취소", _stBtn, GUILayout.Height(48)))
+            if (!relayPrep && GUILayout.Button("취소", Btn(UiKit.Grey, 24), GUILayout.Height(48)))
             {
                 _localLeave = true;
                 var nm = NetworkManager.Singleton;
@@ -421,10 +490,9 @@ namespace RouletteParty.UI
             var cs = ConnectionService.Instance;
             bool isServer = nm != null && nm.IsServer;
 
-            GUILayout.BeginArea(CenterRect(w, h, 820, 760), _stPanel);
-            GUILayout.Space(16);
-            GUILayout.Label("대기방", _stTitle);
-            GUILayout.Space(10);
+            Rect panel = CenterRect(w, h, 820, 760);
+            GUILayout.BeginArea(panel, _stPanel);
+            GUILayout.Space(50);
 
             // ---- 접속 정보(릴레이: 참가 코드 / LAN: IP:포트) ----
             bool relay = cs != null && cs.UseRelay;
@@ -438,7 +506,7 @@ namespace RouletteParty.UI
             GUILayout.BeginHorizontal();
             GUILayout.Label(relay ? $"참가 코드  <b>{addr}</b>" : $"접속 주소  <b>{addr}</b>", _stRow);
             GUILayout.FlexibleSpace();
-            if (GUILayout.Button(relay ? "코드 복사" : "주소 복사", _stBtn, GUILayout.Width(140), GUILayout.Height(40)))
+            if (GUILayout.Button(relay ? "코드 복사" : "주소 복사", Btn(UiKit.Blue, 20), GUILayout.Width(140), GUILayout.Height(42)))
             {
                 GUIUtility.systemCopyBuffer = addr;
                 _message = relay ? "참가 코드를 복사했습니다." : "접속 주소를 복사했습니다.";
@@ -485,7 +553,7 @@ namespace RouletteParty.UI
                     bool isMe = p.ClientId == nm.LocalClientId;
                     if (isMe) { meHost = p.IsHost; meReady = p.Ready; }
 
-                    GUILayout.BeginHorizontal(GUILayout.Height(44));
+                    GUILayout.BeginHorizontal(GUILayout.Height(46));
                     Color oc = GUI.color;
                     GUI.color = PlayerPalette.ColorFor(p.ClientId);
                     GUILayout.Label("■", _stRow, GUILayout.Width(40));
@@ -493,7 +561,9 @@ namespace RouletteParty.UI
                     string label = (p.IsHost ? "[방장] " : "") + (isMe ? $"<b>{p.Name}</b> (나)" : p.Name.ToString());
                     GUILayout.Label(label, _stRow);
                     GUILayout.FlexibleSpace();
-                    GUILayout.Label(p.Ready ? "<b>준비 완료</b>" : "준비 중", _stRow, GUILayout.Width(160));
+                    GUILayout.Label(p.Ready
+                        ? "<color=#5FA83E><b>준비 완료</b></color>"
+                        : "<color=#6B6156>준비 중</color>", _stRow, GUILayout.Width(160));
                     GUILayout.EndHorizontal();
                 }
             }
@@ -508,20 +578,20 @@ namespace RouletteParty.UI
             GUILayout.BeginHorizontal();
             if (lm != null && lm.IsSpawned)
             {
-                if (GUILayout.Button(meReady ? "준비 취소" : "준비하기", _stBtnBig, GUILayout.Height(58)))
+                if (GUILayout.Button(meReady ? "준비 취소" : "준비하기", Btn(meReady ? UiKit.Grey : UiKit.Green, 30), GUILayout.Height(60)))
                     lm.SetReadyServerRpc(!meReady);
             }
-            if (GUILayout.Button("방 나가기", _stBtn, GUILayout.Width(190), GUILayout.Height(58)))
+            if (GUILayout.Button("방 나가기", Btn(UiKit.Grey, 24), GUILayout.Width(190), GUILayout.Height(60)))
                 OnLeave();
             GUILayout.EndHorizontal();
 
             // 호스트 전용: 게임 시작(조건 미충족 시 비활성 + 사유 안내. 서버도 RPC 에서 재검증).
             if (meHost && lm != null && lm.IsSpawned)
             {
-                GUILayout.Space(8);
+                GUILayout.Space(10);
                 bool can = count >= min && allReady;
                 GUI.enabled = can;
-                if (GUILayout.Button("게임 시작", _stBtnBig, GUILayout.Height(62)))
+                if (GUILayout.Button("게임 시작", Btn(UiKit.Red, 32), GUILayout.Height(66)))
                     lm.StartGameServerRpc();
                 GUI.enabled = true;
                 if (!can)
@@ -532,6 +602,8 @@ namespace RouletteParty.UI
             if (!string.IsNullOrEmpty(_message)) GUILayout.Label(_message, _stSmall);
             GUILayout.Space(12);
             GUILayout.EndArea();
+
+            DrawBanner(new Rect(panel.x + 240, panel.y - 32, panel.width - 480, 74), "대기방", UiKit.Blue, -1.5f, Color.white);
         }
     }
 }
