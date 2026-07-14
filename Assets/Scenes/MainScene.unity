@@ -205,12 +205,16 @@ MonoBehaviour:
   shaftForward: {x: 0.9, y: 1.1}
   shaftRise: {x: 0.75, y: 0.88}
   bridgeGap: {x: 4.8, y: 5.6}
-  roomSize: 7
   roomPieces:
   - {fileID: 556797735826849617, guid: 0b4fdb8fb686d0b4d993438c67ae7bd0, type: 3}
   - {fileID: 3190709094933979470, guid: 5f91cd3b99cf11a47a8582da960b0fda, type: 3}
   - {fileID: 7944581271079417781, guid: 1088b89b800eafd40b023734dc475156, type: 3}
   - {fileID: 8208404571728248289, guid: 72e04527a6136a04db724916e8105c32, type: 3}
+  stepPiece: {fileID: 4437352366994782921, guid: f26e90e85b5da514cb963883f3b1079d, type: 3}
+  shaftPiece: {fileID: 1880950987064131547, guid: 3c55322d7c157de49a7ed58cc477475f, type: 3}
+  stonePiece: {fileID: 1880950987064131547, guid: 3c55322d7c157de49a7ed58cc477475f, type: 3}
+  bridgePiece: {fileID: 8329738801583316879, guid: c39c66d74edb8494494562a003b131e9, type: 3}
+  junctionArmPiece: {fileID: 1344945643014717943, guid: 860d2c64ff8859c4f91016245cb2dfd0, type: 3}
   junctionChance: 0.6
   junctionArm: 3.2
 --- !u!4 &69890712

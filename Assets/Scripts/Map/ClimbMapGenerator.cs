@@ -132,10 +132,20 @@ public class ClimbMapGenerator : MonoBehaviour
     [SerializeField] private Vector2 shaftRise = new Vector2(0.75f, 0.88f);
     [Tooltip("무너진 다리: 단절 갭(min,max). 4.3 미만이면 구조물 없이 건너져 게이트가 무력화된다.")]
     [SerializeField] private Vector2 bridgeGap = new Vector2(4.8f, 5.6f);
-    [Tooltip("가구 방: 바닥 슬래브 한 변(m).")]
-    [SerializeField] private float roomSize = 7f;
     [Tooltip("가구 방 사다리 조각(낮은 단 -> 높은 단 순서로 4개 권장: 예 쿠션/작은 테이블/큰 테이블/냉장고). 비우면 슬래브 타워 폴백.")]
     [SerializeField] private PlatformSegment[] roomPieces;
+
+    [Header("섹션 조각 프리팹 (비우면 기본 도형 슬래브 폴백)")]
+    [Tooltip("계단/지그재그 스텝 조각. 지그재그 점프 포락선상 z 폭 2.4 이하 권장.")]
+    [SerializeField] private PlatformSegment stepPiece;
+    [Tooltip("수직 샤프트 스텝 조각. 폭 1.5 내외의 컴팩트한 것.")]
+    [SerializeField] private PlatformSegment shaftPiece;
+    [Tooltip("교차로 진입/재개 디딤돌 조각.")]
+    [SerializeField] private PlatformSegment stonePiece;
+    [Tooltip("무너진 다리 상판 조각(평평한 윗면 3m 내외).")]
+    [SerializeField] private PlatformSegment bridgePiece;
+    [Tooltip("회전 교차로 팔 조각(x 로 팔 길이에 맞춰 늘려 씀). 비우면 기본 도형 팔.")]
+    [SerializeField] private PlatformSegment junctionArmPiece;
     [Tooltip("회전 교차로: 인접 레인 쌍마다 생성 확률.")]
     [SerializeField, Range(0f, 1f)] private float junctionChance = 0.6f;
     [Tooltip("회전 교차로: 십자 팔 반길이(m).")]
@@ -482,6 +492,15 @@ public class ClimbMapGenerator : MonoBehaviour
         return go.AddComponent<PlatformSegment>();
     }
 
+    // 구간 전용 조각: 배선된 에셋 래퍼를 인스턴스화, 미배선이면 기본 도형 슬래브 폴백.
+    PlatformSegment Piece(PlatformSegment prefab, Transform parent, Vector3 fallbackSize, string name)
+    {
+        if (prefab == null) return Slab(parent, fallbackSize, name);
+        var seg = Instantiate(prefab, parent);
+        seg.gameObject.name = name;
+        return seg;
+    }
+
     // 조각 공통 등록: 레이어/정적/영역/footprint. boundsOverride = 회전체(교차로)용 정적 AABB.
     void Register(PlatformSegment seg, int ground, int laneIndex, ref int ordinal,
                   ref Bounds footprint, ref int made, bool makeStatic, Bounds? boundsOverride = null)
@@ -637,7 +656,7 @@ public class ClimbMapGenerator : MonoBehaviour
             float dx = Range(rng, stairsForward);
             float dy = CapDy(Range(rng, stairsRise), cursor);
             float dz = PullZ(rng, cursor.z, laneZ) * 0.4f;
-            var seg = Slab(root, new Vector3(1.6f, 0.4f, 1.8f), "Stair");
+            var seg = Piece(stepPiece, root, new Vector3(1.6f, 0.4f, 1.8f), "Stair");
             cursor = Chain(seg, cursor + new Vector3(dx, dy, dz), ground, laneIndex, ref ordinal, ref footprint, ref made);
         }
     }
@@ -653,7 +672,7 @@ public class ClimbMapGenerator : MonoBehaviour
             float dx = Range(rng, zigzagForward);
             float dy = CapDy(Range(rng, zigzagRise), cursor);
             float amp = Range(rng, zigzagAmp);
-            var seg = Slab(root, new Vector3(1.8f, 0.4f, 2.2f), "Zig");
+            var seg = Piece(stepPiece, root, new Vector3(1.8f, 0.4f, 2.2f), "Zig");
             cursor = Chain(seg, new Vector3(cursor.x + dx, cursor.y + dy, laneZ + sign * amp),
                            ground, laneIndex, ref ordinal, ref footprint, ref made);
             sign = -sign;
@@ -671,69 +690,64 @@ public class ClimbMapGenerator : MonoBehaviour
         {
             float dx = Range(rng, shaftForward);
             float dy = CapDy(Range(rng, shaftRise), cursor);
-            var seg = Slab(root, new Vector3(1.4f, 0.35f, 1.4f), "ShaftStep");
+            var seg = Piece(shaftPiece, root, new Vector3(1.4f, 0.35f, 1.4f), "ShaftStep");
             cursor = Chain(seg, new Vector3(cursor.x + dx, cursor.y + dy, baseZ + sign * 0.7f),
                            ground, laneIndex, ref ordinal, ref footprint, ref made);
             sign = -sign;
         }
     }
 
-    // ---- 가구 방형: 바닥 + 가구 사다리(윗면 간 0.9 간격)로 천장(출구)까지 ----
+    // ---- 가구 방형: 공중 가구 사다리(윗면 간 0.9 간격)로 천장(출구)까지. 바닥 슬래브 없음. ----
     void SectionRoom(System.Random rng, Transform root, int ground, int laneIndex, float laneZ,
                      ref Vector3 cursor, ref int ordinal, ref Bounds footprint, ref int made)
     {
-        var floor = Slab(root, new Vector3(roomSize, 0.5f, roomSize), "RoomFloor");
-        cursor = Chain(floor, cursor + new Vector3(1.8f, 0.25f, PullZ(rng, cursor.z, laneZ) * 0.5f),
-                       ground, laneIndex, ref ordinal, ref footprint, ref made);
-        Bounds fb = floor.WorldBounds;
-        float floorTop = fb.max.y;
-        Vector3 c = fb.center;
+        // 가상 방 중심: 커서 전방. 첫 조각(top +0.9)이 커서에서 바로 점프 가능해야 한다.
+        float baseY = cursor.y;
+        var c = new Vector3(cursor.x + 3.2f, baseY, cursor.z + PullZ(rng, cursor.z, laneZ) * 0.5f);
 
         // 사다리 순서(코너 순환): 인접 윗면 간 수평 중심거리 3~4m(에지 갭 <= 1.5).
         Vector2[] offs = { new Vector2(-1.9f, -1.9f), new Vector2(1.6f, -1.4f),
                            new Vector2(-1.4f, 1.6f),  new Vector2(1.9f, 1.9f) };
-        PlatformSegment topPiece = floor;
+        PlatformSegment topPiece = null;
         for (int k = 0; k < 4; k++)
         {
-            float targetTop = floorTop + 0.9f * (k + 1);
+            float targetTop = baseY + 0.9f * (k + 1);
             PlatformSegment piece;
             if (roomPieces != null && roomPieces.Length > 0 && roomPieces[k % roomPieces.Length] != null)
                 piece = Instantiate(roomPieces[k % roomPieces.Length], root);
             else
                 piece = Slab(root, new Vector3(2f, 0.9f * (k + 1), 2f), "RoomTower");
 
-            // 밑면 중심을 코너에, 윗면을 targetTop 에(초과 높이는 바닥에 침하, 관통 한도 0.45).
+            // 밑면 중심을 코너에, 윗면을 targetTop 에(가구 몸통은 공중에 떠 있는다 — 맵 전체 규약과 동일).
             Bounds pb = piece.WorldBounds;
             var bottomCenter = new Vector3(pb.center.x, pb.min.y, pb.center.z);
-            var desired = new Vector3(c.x + offs[k].x,
-                                      Mathf.Max(targetTop - pb.size.y, floorTop - 0.45f),
-                                      c.z + offs[k].y);
+            var desired = new Vector3(c.x + offs[k].x, targetTop - pb.size.y, c.z + offs[k].y);
             piece.transform.position += desired - bottomCenter;
             Register(piece, ground, laneIndex, ref ordinal, ref footprint, ref made, true);
             topPiece = piece;
         }
-        cursor = topPiece.ExitWorld;
+        if (topPiece != null) cursor = topPiece.ExitWorld;
     }
 
     // ---- 무너진 다리형: 플랭크 + 단절 갭(구조물 설치 필요) + 플랭크 ----
     void SectionBridge(System.Random rng, Transform root, int ground, int laneIndex, float laneZ,
                        ref Vector3 cursor, ref int ordinal, ref Bounds footprint, ref int made)
     {
-        var plank = new Vector3(3.2f, 0.3f, 2.2f);
+        var plankFallback = new Vector3(3.2f, 0.3f, 2.2f);
         int lead = 2 + rng.Next(2);
         for (int i = 0; i < lead; i++)
         {
             float dx = 1.3f + (float)rng.NextDouble() * 0.3f;
-            var seg = Slab(root, plank, "BridgePlank");
+            var seg = Piece(bridgePiece, root, plankFallback, "BridgePlank");
             cursor = Chain(seg, cursor + new Vector3(dx, 0.12f, PullZ(rng, cursor.z, laneZ) * 0.3f),
                            ground, laneIndex, ref ordinal, ref footprint, ref made);
         }
         // 단절: 점프 불가 거리(>= 4.3). 구조물을 놓아야 건넌다(설치 게이트 게임 핵심).
         float gap = Range(rng, bridgeGap);
-        var far = Slab(root, plank, "BridgeFar");
+        var far = Piece(bridgePiece, root, plankFallback, "BridgeFar");
         cursor = Chain(far, cursor + new Vector3(gap, CapDy(0.4f, cursor), PullZ(rng, cursor.z, laneZ) * 0.3f),
                        ground, laneIndex, ref ordinal, ref footprint, ref made);
-        var tail = Slab(root, plank, "BridgePlank");
+        var tail = Piece(bridgePiece, root, plankFallback, "BridgePlank");
         cursor = Chain(tail, cursor + new Vector3(1.4f, 0.12f, 0f),
                        ground, laneIndex, ref ordinal, ref footprint, ref made);
     }
@@ -765,7 +779,7 @@ public class ClimbMapGenerator : MonoBehaviour
 
         // 통과 후 재개 지점(+X 쪽, 회전 팔을 타고 건넌다).
         var resume = new Vector3(js.Center.x + junctionArm + 0.9f, js.TopY - 0.05f, js.Center.z + zsign * 1.2f);
-        var exitStone = Slab(root, new Vector3(1.7f, 0.4f, 1.7f), "JunctionExit");
+        var exitStone = Piece(stonePiece, root, new Vector3(1.7f, 0.4f, 1.7f), "JunctionExit");
         cursor = Chain(exitStone, resume, ground, laneIndex, ref ordinal, ref footprint, ref made);
     }
 
@@ -777,15 +791,33 @@ public class ClimbMapGenerator : MonoBehaviour
 
         for (int k = 0; k < 2; k++)
         {
-            var arm = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            arm.name = "Arm" + k;
-            arm.transform.SetParent(rootGo.transform, false);
-            arm.transform.localScale = new Vector3(junctionArm * 2f, 0.45f, 1.7f);
-            arm.transform.localRotation = Quaternion.Euler(0f, k * 90f, 0f);
-            if (structureMaterials != null && structureMaterials.Length > 0)
+            if (junctionArmPiece != null)
             {
-                var mat = structureMaterials[_fallbackMatIndex++ % structureMaterials.Length];
-                if (mat != null) arm.GetComponent<MeshRenderer>().sharedMaterial = mat;
+                // 에셋 팔: x 를 팔 길이에 맞춰 늘리고, 윗면을 걷는 면(TopY 평면)에 정렬한 뒤 90도 교차.
+                var seg = Instantiate(junctionArmPiece, rootGo.transform);
+                seg.gameObject.name = "Arm" + k;
+                Bounds ab = seg.WorldBounds;
+                float sx = junctionArm * 2f / Mathf.Max(0.1f, ab.size.x);
+                var ls = seg.transform.localScale;
+                seg.transform.localScale = new Vector3(ls.x * sx, ls.y, ls.z);
+                ab = seg.WorldBounds;
+                seg.transform.position += new Vector3(js.Center.x - ab.center.x,
+                                                      js.Center.y + 0.225f - ab.max.y,
+                                                      js.Center.z - ab.center.z);
+                seg.transform.RotateAround(js.Center, Vector3.up, k * 90f);
+            }
+            else
+            {
+                var arm = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                arm.name = "Arm" + k;
+                arm.transform.SetParent(rootGo.transform, false);
+                arm.transform.localScale = new Vector3(junctionArm * 2f, 0.45f, 1.7f);
+                arm.transform.localRotation = Quaternion.Euler(0f, k * 90f, 0f);
+                if (structureMaterials != null && structureMaterials.Length > 0)
+                {
+                    var mat = structureMaterials[_fallbackMatIndex++ % structureMaterials.Length];
+                    if (mat != null) arm.GetComponent<MeshRenderer>().sharedMaterial = mat;
+                }
             }
         }
         SetLayerRecursive(rootGo, ground); // 동적이므로 정적 제외
@@ -819,7 +851,7 @@ public class ClimbMapGenerator : MonoBehaviour
             Vector3 dir = dxz > 0.01f ? new Vector3(to.x, 0f, to.z) / dxz : Vector3.right;
             float step = Mathf.Min(1.9f, dxz);
             float dy = Mathf.Clamp(to.y, -1.4f, 0.7f);
-            var stone = Slab(root, new Vector3(1.6f, 0.4f, 1.6f), "Stone");
+            var stone = Piece(stonePiece, root, new Vector3(1.6f, 0.4f, 1.6f), "Stone");
             cursor = Chain(stone, cursor + dir * step + Vector3.up * dy,
                            ground, laneIndex, ref ordinal, ref footprint, ref made);
         }
