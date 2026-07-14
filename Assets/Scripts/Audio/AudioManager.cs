@@ -85,6 +85,8 @@ namespace RouletteParty.Audio
             if (am == null) return;
             AudioClip clip = am.ClipFor(id);
             if (clip == null) return;
+            // 점프처럼 자주 나는 소리는 매번 살짝 다른 피치로 재생해 기계적 반복을 줄인다.
+            am._sfxSource.pitch = id == Sfx.Jump ? UnityEngine.Random.Range(0.95f, 1.06f) : 1f;
             am._sfxSource.PlayOneShot(clip, SfxVolume());
         }
 
