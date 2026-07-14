@@ -197,6 +197,30 @@ MonoBehaviour:
   finishMaterial: {fileID: 2100000, guid: 146cf447f94ed524bbdaebbf4cecb7a8, type: 2}
   useSectionLanes: 1
   targetRisePerLane: 10
+  smallPlatforms:
+  - {fileID: 6982759615341400276, guid: 09505e6b22dc2724e8abf17f594fb0a6, type: 3}
+  - {fileID: 4437352366994782921, guid: f26e90e85b5da514cb963883f3b1079d, type: 3}
+  - {fileID: 1880950987064131547, guid: 3c55322d7c157de49a7ed58cc477475f, type: 3}
+  - {fileID: 4555260922020243220, guid: b1e50549d39e9c0419b7b70894bf7ceb, type: 3}
+  mediumPlatforms:
+  - {fileID: 153683816745719529, guid: 3bbd9dd0e5834a74f93cf00eec34081c, type: 3}
+  - {fileID: 556797735826849617, guid: 0b4fdb8fb686d0b4d993438c67ae7bd0, type: 3}
+  - {fileID: 1344945643014717943, guid: 860d2c64ff8859c4f91016245cb2dfd0, type: 3}
+  - {fileID: 8208404571728248289, guid: 72e04527a6136a04db724916e8105c32, type: 3}
+  - {fileID: 4784896284820870728, guid: 85e092052158a1c47b369d3cf19b0773, type: 3}
+  - {fileID: 8329738801583316879, guid: c39c66d74edb8494494562a003b131e9, type: 3}
+  - {fileID: 676141235924849078, guid: a3092400f7033eb4f83b3288893e4ef8, type: 3}
+  - {fileID: 4502039273891891585, guid: bf1e622a4bf774641a1e113323219b28, type: 3}
+  - {fileID: 6547051151732050576, guid: 7257d505167c23f4788a302f5c113215, type: 3}
+  - {fileID: 898922820652318928, guid: 68c9aa6c5699b49458b6dbc9ded3a63a, type: 3}
+  - {fileID: 7944581271079417781, guid: 1088b89b800eafd40b023734dc475156, type: 3}
+  - {fileID: 3190709094933979470, guid: 5f91cd3b99cf11a47a8582da960b0fda, type: 3}
+  largePlatforms:
+  - {fileID: 5993744968319357790, guid: 250b7856a8266b048ad1de6ded3c5d89, type: 3}
+  - {fileID: 7236668554491979240, guid: f7ee363c34d8abc409ce7571e2a83d19, type: 3}
+  - {fileID: 1622149145969614960, guid: b72792a4493b05b4097eeb5dad5c2b7b, type: 3}
+  - {fileID: 1572055631111915911, guid: 0fcba67a65295d048b4dc97963dfbc28, type: 3}
+  tiltChance: 0.12
   stairsForward: {x: 1.5, y: 2.1}
   stairsRise: {x: 0.5, y: 0.7}
   zigzagForward: {x: 0.9, y: 1.2}
@@ -204,19 +228,19 @@ MonoBehaviour:
   zigzagAmp: {x: 1.3, y: 1.7}
   shaftForward: {x: 0.9, y: 1.1}
   shaftRise: {x: 0.75, y: 0.88}
+  shaftMediumChance: 0.35
+  roomSmallCount: 2
+  roomMediumCount: 2
+  roomLargeCount: 1
+  roomStepRise: 0.9
+  roomStepDist: {x: 2.6, y: 3.6}
+  roomOverlapTolerance: 0.3
   bridgeGap: {x: 4.8, y: 5.6}
-  roomPieces:
-  - {fileID: 556797735826849617, guid: 0b4fdb8fb686d0b4d993438c67ae7bd0, type: 3}
-  - {fileID: 3190709094933979470, guid: 5f91cd3b99cf11a47a8582da960b0fda, type: 3}
-  - {fileID: 7944581271079417781, guid: 1088b89b800eafd40b023734dc475156, type: 3}
-  - {fileID: 8208404571728248289, guid: 72e04527a6136a04db724916e8105c32, type: 3}
-  stepPiece: {fileID: 4437352366994782921, guid: f26e90e85b5da514cb963883f3b1079d, type: 3}
-  shaftPiece: {fileID: 1880950987064131547, guid: 3c55322d7c157de49a7ed58cc477475f, type: 3}
-  stonePiece: {fileID: 1880950987064131547, guid: 3c55322d7c157de49a7ed58cc477475f, type: 3}
   bridgePiece: {fileID: 8329738801583316879, guid: c39c66d74edb8494494562a003b131e9, type: 3}
-  junctionArmPiece: {fileID: 1344945643014717943, guid: 860d2c64ff8859c4f91016245cb2dfd0, type: 3}
-  junctionChance: 0.6
-  junctionArm: 3.2
+  spinCount: 3
+  spinSpeed: 35
+  spinGapMargin: 0.7
+  spinRise: {x: 0.4, y: 0.6}
 --- !u!4 &69890712
 Transform:
   m_ObjectHideFlags: 0

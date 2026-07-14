@@ -32,6 +32,13 @@ namespace RouletteParty.Map
             _initialized = true;
         }
 
+        /// <summary>생성기 전용: 위상 + 회전 속도 지정(런타임 AddComponent 조합용 — 회전 청크 등).</summary>
+        public void Initialize(float phaseDegrees, float degreesPerSecond)
+        {
+            _degreesPerSecond = degreesPerSecond;
+            Initialize(phaseDegrees);
+        }
+
         private void Start()
         {
             // 씬 수동 배치 폴백(생성기 없이 단독 테스트 가능).
