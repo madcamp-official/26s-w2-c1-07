@@ -15,6 +15,7 @@ GameObject:
   - component: {fileID: 319737163021261679}
   - component: {fileID: 1665602267064330198}
   - component: {fileID: 2666885598947837447}
+  - component: {fileID: 8263653186369920255}
   m_Layer: 0
   m_Name: Player
   m_TagString: Untagged
@@ -104,6 +105,7 @@ MonoBehaviour:
   ShowTopMostFoldoutHeaderGroup: 1
   moveSpeed: 6
   jumpHeight: 2
+  jumpHeightMin: 0.45
   gravity: -15
   turnSpeed: 12
   fallReportMin: 3
@@ -208,6 +210,31 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::RouletteParty.Net.PlayerTint
   ShowTopMostFoldoutHeaderGroup: 1
+--- !u!114 &8263653186369920255
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 5450510477442867896}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: b658f827791fabf49a8c0f6b279c9e80, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::RouletteParty.Net.PlayerJuice
+  _model: {fileID: 8486413949061435571}
+  _dustPrefab: {fileID: 853955139736888715, guid: 1716777809970904183aa1f2e0961193, type: 3}
+  _stiffness: 220
+  _damping: 14
+  _scaleAmount: 0.5
+  _maxSquash: 0.6
+  _jumpStretch: 7
+  _landPerSpeed: 0.55
+  _landMin: 2.5
+  _landMax: 10
+  _dustMinSpeed: 3
+  _groundRayLength: 0.4
+  _maxPlausibleVSpeed: 40
 --- !u!1001 &7718498544982306788
 PrefabInstance:
   m_ObjectHideFlags: 0
