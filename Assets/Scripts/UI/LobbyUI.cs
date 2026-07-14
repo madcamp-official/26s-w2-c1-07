@@ -3,6 +3,7 @@ using Unity.Netcode;
 using UnityEngine;
 using RouletteParty.Match; // MatchManager (로비 목록/RPC)
 using RouletteParty.Net;   // ConnectionService (방 만들기/참가/나가기)
+using RouletteParty.Audio; // AudioManager (버튼 클릭 사운드)
 
 namespace RouletteParty.UI
 {
@@ -385,6 +386,14 @@ namespace RouletteParty.UI
             GUI.matrix = old;
         }
 
+        // 버튼 + 클릭 사운드(모든 로비 버튼 공용 래퍼). 클릭된 프레임에만 UIClick 재생.
+        private static bool Clk(string label, GUIStyle style, params GUILayoutOption[] opts)
+        {
+            bool clicked = GUILayout.Button(label, style, opts);
+            if (clicked) AudioManager.Play(Sfx.UIClick);
+            return clicked;
+        }
+
         private static Rect CenterRect(float w, float h, float pw, float ph) =>
             new Rect((w - pw) * 0.5f, (h - ph) * 0.5f, pw, ph);
 
@@ -403,11 +412,11 @@ namespace RouletteParty.UI
             GUILayout.Space(30);
             bool busy = DeriveNet() == NetState.Busy;
             GUI.enabled = !busy;
-            if (GUILayout.Button("방 만들기", Btn(UiKit.Red, 30), GUILayout.Height(64))) OnCreateRoom();
+            if (Clk("방 만들기", Btn(UiKit.Red, 30), GUILayout.Height(64))) OnCreateRoom();
             GUILayout.Space(12);
-            if (GUILayout.Button("방 참가", Btn(UiKit.Teal, 30), GUILayout.Height(64))) { _message = ""; _view = View.Join; }
+            if (Clk("방 참가", Btn(UiKit.Teal, 30), GUILayout.Height(64))) { _message = ""; _view = View.Join; }
             GUILayout.Space(12);
-            if (GUILayout.Button("종료", Btn(UiKit.Grey, 24), GUILayout.Height(48))) QuitGame();
+            if (Clk("종료", Btn(UiKit.Grey, 24), GUILayout.Height(48))) QuitGame();
             GUI.enabled = true;
 
             GUILayout.FlexibleSpace();
@@ -445,9 +454,9 @@ namespace RouletteParty.UI
             }
 
             GUILayout.Space(26);
-            if (GUILayout.Button("참가", Btn(UiKit.Teal, 30), GUILayout.Height(64))) OnJoin();
+            if (Clk("참가", Btn(UiKit.Teal, 30), GUILayout.Height(64))) OnJoin();
             GUILayout.Space(12);
-            if (GUILayout.Button("뒤로", Btn(UiKit.Grey, 24), GUILayout.Height(48))) { _message = ""; _view = View.Title; }
+            if (Clk("뒤로", Btn(UiKit.Grey, 24), GUILayout.Height(48))) { _message = ""; _view = View.Title; }
 
             GUILayout.FlexibleSpace();
             if (!string.IsNullOrEmpty(_message)) GUILayout.Label(_message, _stSmall);
@@ -473,7 +482,7 @@ namespace RouletteParty.UI
                             new GUIStyle(_stLabel) { alignment = TextAnchor.MiddleCenter });
             GUILayout.FlexibleSpace();
             // 릴레이 준비 단계는 중간 취소가 불가(비동기 완료 후 상태로 정리됨) -> 버튼 숨김.
-            if (!relayPrep && GUILayout.Button("취소", Btn(UiKit.Grey, 24), GUILayout.Height(48)))
+            if (!relayPrep && Clk("취소", Btn(UiKit.Grey, 24), GUILayout.Height(48)))
             {
                 _localLeave = true;
                 var nm = NetworkManager.Singleton;
@@ -507,7 +516,7 @@ namespace RouletteParty.UI
             GUILayout.BeginHorizontal();
             GUILayout.Label(relay ? $"참가 코드  <b>{addr}</b>" : $"접속 주소  <b>{addr}</b>", _stRow);
             GUILayout.FlexibleSpace();
-            if (GUILayout.Button(relay ? "코드 복사" : "주소 복사", Btn(UiKit.Blue, 20), GUILayout.Width(140), GUILayout.Height(42)))
+            if (Clk(relay ? "코드 복사" : "주소 복사", Btn(UiKit.Blue, 20), GUILayout.Width(140), GUILayout.Height(42)))
             {
                 GUIUtility.systemCopyBuffer = addr;
                 _message = relay ? "참가 코드를 복사했습니다." : "접속 주소를 복사했습니다.";
@@ -596,10 +605,10 @@ namespace RouletteParty.UI
             GUILayout.BeginHorizontal();
             if (lm != null && lm.IsSpawned)
             {
-                if (GUILayout.Button(meReady ? "준비 취소" : "준비하기", Btn(meReady ? UiKit.Grey : UiKit.Green, 30), GUILayout.Height(60)))
+                if (Clk(meReady ? "준비 취소" : "준비하기", Btn(meReady ? UiKit.Grey : UiKit.Green, 30), GUILayout.Height(60)))
                     lm.SetReadyServerRpc(!meReady);
             }
-            if (GUILayout.Button("방 나가기", Btn(UiKit.Grey, 24), GUILayout.Width(190), GUILayout.Height(60)))
+            if (Clk("방 나가기", Btn(UiKit.Grey, 24), GUILayout.Width(190), GUILayout.Height(60)))
                 OnLeave();
             GUILayout.EndHorizontal();
 
@@ -609,7 +618,7 @@ namespace RouletteParty.UI
                 GUILayout.Space(10);
                 bool can = count >= min && allReady;
                 GUI.enabled = can;
-                if (GUILayout.Button("게임 시작", Btn(UiKit.Red, 32), GUILayout.Height(66)))
+                if (Clk("게임 시작", Btn(UiKit.Red, 32), GUILayout.Height(66)))
                     lm.StartGameServerRpc();
                 GUI.enabled = true;
                 if (!can)
@@ -633,7 +642,7 @@ namespace RouletteParty.UI
             for (int i = 0; i < presets.Length; i++)
             {
                 bool selHere = Mathf.Approximately(presets[i], current);
-                if (GUILayout.Button(FormatSec(presets[i]), Btn(selHere ? UiKit.Teal : UiKit.Grey, 20),
+                if (Clk(FormatSec(presets[i]), Btn(selHere ? UiKit.Teal : UiKit.Grey, 20),
                                      GUILayout.Height(42)) && !selHere)
                     onPick(presets[i]);
                 GUILayout.Space(6);

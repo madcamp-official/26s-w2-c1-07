@@ -15,6 +15,7 @@ namespace RouletteParty.Audio
         PlayStart,   // 라운드(PLAY) 시작
         RoundEnd,    // 라운드 종료(HIGHLIGHT 진입)
         MatchResult, // 최종 결과(RESULT 진입)
+        UIClick,     // UI 버튼 클릭(로비/설정 등)
     }
 
     /// <summary>
@@ -41,6 +42,7 @@ namespace RouletteParty.Audio
         [SerializeField] private AudioClip _playStart;
         [SerializeField] private AudioClip _roundEnd;
         [SerializeField] private AudioClip _matchResult;
+        [SerializeField] private AudioClip _uiClick;
 
         [Header("BGM (비워두면 무음)")]
         [Tooltip("PLAY 외 페이즈(로비/준비/하이라이트/결과) 배경음. 루프 재생.")]
@@ -98,6 +100,7 @@ namespace RouletteParty.Audio
                 case Sfx.PlayStart:   return _playStart;
                 case Sfx.RoundEnd:    return _roundEnd;
                 case Sfx.MatchResult: return _matchResult;
+                case Sfx.UIClick:     return _uiClick;
                 default:              return null;
             }
         }

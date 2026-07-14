@@ -1,6 +1,7 @@
 using UnityEngine;
 using UnityEngine.InputSystem; // 새 Input System
 using RouletteParty.UI;        // ImguiScale (OnGUI 해상도 스케일링)
+using RouletteParty.Audio;     // AudioManager (버튼 클릭 사운드)
 
 namespace RouletteParty.Core
 {
@@ -145,6 +146,14 @@ namespace RouletteParty.Core
             _tabOff = MakeTab(UiKit.Grey);
         }
 
+        // 버튼 + 클릭 사운드 공용 래퍼.
+        private static bool Clk(string label, GUIStyle style, params GUILayoutOption[] opts)
+        {
+            bool clicked = GUILayout.Button(label, style, opts);
+            if (clicked) AudioManager.Play(Sfx.UIClick);
+            return clicked;
+        }
+
         private static GUIStyle MakeTab(Color fill)
         {
             var st = new GUIStyle(GUI.skin.button)
@@ -176,9 +185,9 @@ namespace RouletteParty.Core
 
             // ---- 탭 ----
             GUILayout.BeginHorizontal();
-            if (GUILayout.Button("설정", _tab == 0 ? _tabOn : _tabOff, GUILayout.Height(44))) _tab = 0;
+            if (Clk("설정", _tab == 0 ? _tabOn : _tabOff, GUILayout.Height(44))) _tab = 0;
             GUILayout.Space(8);
-            if (GUILayout.Button("설명", _tab == 1 ? _tabOn : _tabOff, GUILayout.Height(44))) _tab = 1;
+            if (Clk("설명", _tab == 1 ? _tabOn : _tabOff, GUILayout.Height(44))) _tab = 1;
             GUILayout.EndHorizontal();
             GUILayout.Space(12);
 
@@ -187,9 +196,9 @@ namespace RouletteParty.Core
 
             GUILayout.FlexibleSpace();
             GUILayout.BeginHorizontal();
-            if (_tab == 0 && GUILayout.Button("기본값 복원", _tabOff, GUILayout.Height(44))) ResetToDefaults();
+            if (_tab == 0 && Clk("기본값 복원", _tabOff, GUILayout.Height(44))) ResetToDefaults();
             GUILayout.FlexibleSpace();
-            if (GUILayout.Button("닫기 (F1)", _tabOff, GUILayout.Height(44), GUILayout.Width(150)))
+            if (Clk("닫기 (F1)", _tabOff, GUILayout.Height(44), GUILayout.Width(150)))
             {
                 _open = false;
                 Store();

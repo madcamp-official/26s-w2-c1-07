@@ -250,6 +250,7 @@ MonoBehaviour:
   _playStart: {fileID: 8300000, guid: 16c35b8a205952445bd9ea9a91d181ae, type: 3}
   _roundEnd: {fileID: 8300000, guid: 3d1fc5c31a2f73e4ea22dc958f31fac5, type: 3}
   _matchResult: {fileID: 8300000, guid: 1f6ad1b8f09d92d4db239c5d9b005cf0, type: 3}
+  _uiClick: {fileID: 8300000, guid: db935bbb1c5cc4048a83ffe107382097, type: 3}
   _bgmLobby: {fileID: 0}
   _bgmPlay: {fileID: 0}
   _bgmFadeSpeed: 1.5
