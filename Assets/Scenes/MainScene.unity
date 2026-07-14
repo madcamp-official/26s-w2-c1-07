@@ -15,7 +15,7 @@ RenderSettings:
   m_ObjectHideFlags: 0
   serializedVersion: 10
   m_Fog: 1
-  m_FogColor: {r: 0.97, g: 0.8, b: 0.63, a: 1}
+  m_FogColor: {r: 0.82, g: 0.9, b: 0.98, a: 1}
   m_FogMode: 1
   m_FogDensity: 0.01
   m_LinearFogStart: 60
@@ -23,7 +23,7 @@ RenderSettings:
   m_AmbientSkyColor: {r: 0.212, g: 0.227, b: 0.259, a: 1}
   m_AmbientEquatorColor: {r: 0.114, g: 0.125, b: 0.133, a: 1}
   m_AmbientGroundColor: {r: 0.047, g: 0.043, b: 0.035, a: 1}
-  m_AmbientIntensity: 1.25
+  m_AmbientIntensity: 1.15
   m_AmbientMode: 0
   m_SubtractiveShadowColor: {r: 0.42, g: 0.478, b: 0.627, a: 1}
   m_SkyboxMaterial: {fileID: 2100000, guid: 774815e1bb94639469f91617d2b503d1, type: 2}
@@ -624,8 +624,8 @@ Light:
   m_Enabled: 1
   serializedVersion: 13
   m_Type: 1
-  m_Color: {r: 1, g: 0.79, b: 0.58, a: 1}
-  m_Intensity: 1.15
+  m_Color: {r: 1, g: 0.96, b: 0.88, a: 1}
+  m_Intensity: 1.1
   m_Range: 10
   m_SpotAngle: 30
   m_InnerSpotAngle: 21.80208
@@ -687,7 +687,7 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1053107041}
   serializedVersion: 2
-  m_LocalRotation: {x: 0.09841025, y: 0.7002253, z: -0.09841025, w: 0.7002253}
+  m_LocalRotation: {x: 0.37992823, y: 0.59636784, z: -0.37992823, w: 0.59636784}
   m_LocalPosition: {x: 0, y: 3, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
@@ -1220,6 +1220,90 @@ PrefabInstance:
     m_AddedGameObjects: []
     m_AddedComponents: []
   m_SourcePrefab: {fileID: 100100000, guid: 637aaae5fff954b43ab080a0fe684565, type: 3}
+--- !u!1 &1973743923
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1973743925}
+  - component: {fileID: 1973743924}
+  m_Layer: 0
+  m_Name: DayCycle
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &1973743924
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1973743923}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: cb11d0a87c3f84346b96eebc35647392, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::RouletteParty.Map.DayCycleController
+  _skySource: {fileID: 2100000, guid: 774815e1bb94639469f91617d2b503d1, type: 2}
+  _sun: {fileID: 1053107042}
+  _transitionSeconds: 4
+  _rounds:
+  - name: "\uC815\uC624"
+    topColor: {r: 0.3, g: 0.58, b: 0.95, a: 1}
+    midColor: {r: 0.72, g: 0.88, b: 0.97, a: 1}
+    bottomColor: {r: 0.9, g: 0.88, b: 0.8, a: 1}
+    sunColor: {r: 1, g: 0.98, b: 0.9, a: 1}
+    sunGlowStrength: 0.35
+    lightColor: {r: 1, g: 0.96, b: 0.88, a: 1}
+    lightIntensity: 1.1
+    sunPitch: 65
+    sunYaw: 90
+    fogColor: {r: 0.82, g: 0.9, b: 0.98, a: 1}
+    ambientIntensity: 1.15
+  - name: "\uC624\uD6C4"
+    topColor: {r: 0.34, g: 0.55, b: 0.88, a: 1}
+    midColor: {r: 0.9, g: 0.87, b: 0.72, a: 1}
+    bottomColor: {r: 0.9, g: 0.78, b: 0.62, a: 1}
+    sunColor: {r: 1, g: 0.94, b: 0.75, a: 1}
+    sunGlowStrength: 0.45
+    lightColor: {r: 1, g: 0.9, b: 0.74, a: 1}
+    lightIntensity: 1.12
+    sunPitch: 38
+    sunYaw: 90
+    fogColor: {r: 0.92, g: 0.88, b: 0.74, a: 1}
+    ambientIntensity: 1.18
+  - name: "\uACE8\uB4E0\uC544\uC6CC"
+    topColor: {r: 0.34, g: 0.47, b: 0.76, a: 1}
+    midColor: {r: 0.99, g: 0.8, b: 0.58, a: 1}
+    bottomColor: {r: 0.86, g: 0.62, b: 0.52, a: 1}
+    sunColor: {r: 1, g: 0.9, b: 0.65, a: 1}
+    sunGlowStrength: 0.6
+    lightColor: {r: 1, g: 0.79, b: 0.58, a: 1}
+    lightIntensity: 1.15
+    sunPitch: 16
+    sunYaw: 90
+    fogColor: {r: 0.97, g: 0.8, b: 0.63, a: 1}
+    ambientIntensity: 1.25
+--- !u!4 &1973743925
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1973743923}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1001 &2009977154
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -1306,3 +1390,4 @@ SceneRoots:
   - {fileID: 153539540}
   - {fileID: 2009977154}
   - {fileID: 2486377}
+  - {fileID: 1973743925}
