@@ -115,7 +115,7 @@ public class ClimbMapGenerator : MonoBehaviour
     [SerializeField] private Material finishMaterial;
 
     [Header("섹션 레인 — 청크(구간) 유형 기반 생성 (끄면 기존 균일 체인)")]
-    [Tooltip("켜면 레인 = 청크(계단/지그재그/수직 샤프트/가구 방/무너진 다리/회전) 체인 + 도착 청크.")]
+    [Tooltip("켜면 레인 = 청크(지그재그/수직 샤프트/가구 방/지름길/대단절/랜드마크) 체인 + 도착 청크. 일자 길·무너진 다리·회전은 풀 제외(베이스 보존).")]
     [SerializeField] private bool useSectionLanes = true;
     [Tooltip("레인당 청크 개수(고정). 맵 높이는 뽑힌 청크 구성에서 자연히 결정된다(상승 예산 없음).")]
     [SerializeField] private int chunksPerLane = 5;
@@ -133,10 +133,10 @@ public class ClimbMapGenerator : MonoBehaviour
     [SerializeField] private PlatformSegment[] smallPlatforms;
     [Tooltip("중(최대 변 ~4m): 진입/휴게 발판, 샤프트 일부, 가구 방 중단.")]
     [SerializeField] private PlatformSegment[] mediumPlatforms;
-    [Tooltip("대(그 이상): 정상 발판, 회전 청크, 가구 방 최상단.")]
+    [Tooltip("대(그 이상): 가구 방 최상단, 랜드마크(x landmarkScale).")]
     [SerializeField] private PlatformSegment[] largePlatforms;
-    [Tooltip("진입/휴게/정상 발판이 90도 회전(눕힘/세움)된 형태로 나올 확률.")]
-    [SerializeField, Range(0f, 1f)] private float tiltChance = 0.12f;
+    [Tooltip("발판이 90도 회전(눕힘/세움)된 형태로 나올 확률. 모든 정적 발판 대상(회전/다리 조각·도착 청크 제외).")]
+    [SerializeField, Range(0f, 1f)] private float tiltChance = 1f;
 
     [Header("청크: 계단 (소 티어, 발판마다 랜덤)")]
     [Tooltip("步당 전진(min,max). 조각 폭(~2)보다 작으면 겹침 계단, 크면 소갭.")]
@@ -200,7 +200,7 @@ public class ClimbMapGenerator : MonoBehaviour
     [Tooltip("랜드마크 진입 상승(min,max).")]
     [SerializeField] private Vector2 landmarkRise = new Vector2(0.45f, 0.7f);
 
-    [Header("청크: 회전 (대 티어, 전부 자전)")]
+    [Header("청크: 회전 (선택 풀 제외 — 베이스 보존)")]
     [Tooltip("회전 발판 개수.")]
     [SerializeField] private int spinCount = 3;
     [Tooltip("자전 속도(도/초). 시드 위상으로 전 피어 동일.")]
@@ -529,17 +529,17 @@ public class ClimbMapGenerator : MonoBehaviour
         Shaft = 2,
         Room = 3,
         Bridge = 4,   // 무너진 다리 — 선택 풀 제외(지름길/대단절이 게이트 역할 대체)
-        Spin = 5,
+        Spin = 5,     // 회전(구 교차로) — 선택 풀 제외(베이스 보존)
         Shortcut = 6, // 지름길: 우회로(점프 가능) + 구조물 1개로 여는 단절
         GrandGap = 7, // 대단절: 여러 구조물을 이어야 하는 큰 단절
         Landmark = 8, // 랜드마크: 아주 큰 에셋 하나
     }
 
-    // 랜덤 선택 가능한 청크 풀(일자 길·무너진 다리 제외).
+    // 랜덤 선택 가능한 청크 풀(일자 길·무너진 다리·회전 제외 — 코드 베이스는 보존).
     static readonly SectionKind[] SelectableKinds =
     {
         SectionKind.Zigzag, SectionKind.Shaft, SectionKind.Room,
-        SectionKind.Spin, SectionKind.Shortcut, SectionKind.GrandGap, SectionKind.Landmark,
+        SectionKind.Shortcut, SectionKind.GrandGap, SectionKind.Landmark,
     };
 
     // 공유 청크 계획(맵 시드에서 1회): 모든 레인이 같은 유형 배열/步 수/다리 갭/경계 반경을 쓴다.
@@ -727,20 +727,25 @@ public class ClimbMapGenerator : MonoBehaviour
         return seg;
     }
 
-    // 진입/휴게/정상 발판: 티어 랜덤 + 낮은 확률(tiltChance) 90도 회전(눕힘/세움) + 동적 조각 위상.
+    // 90도 틸트(눕힘/세움): tiltChance 확률로 X±90/Z±90 중 하나. 드로우 2 고정(확률과 무관하게 소비).
+    // 체인 앵커/바운즈 측정 전에 호출해야 회전된 포즈 기준으로 배치된다.
+    void ApplyTilt(System.Random rng, PlatformSegment seg)
+    {
+        double tiltRoll = rng.NextDouble();
+        double variantRoll = rng.NextDouble();
+        if (tiltRoll >= tiltChance) return;
+        int v = (int)(variantRoll * 4.0) & 3; // X±90 / Z±90 중 하나
+        Vector3 axis = (v & 2) == 0 ? Vector3.right : Vector3.forward;
+        seg.transform.rotation = Quaternion.AngleAxis((v & 1) == 0 ? 90f : -90f, axis);
+    }
+
+    // 진입/휴게/정상 발판: 티어 랜덤 + tiltChance 90도 회전(눕힘/세움) + 동적 조각 위상.
     // 드로우 수 고정: 티어 1 + 틸트 2 (+ 조각 내 회전/이동 컴포넌트 수만큼 — 프리팹별 고정).
     PlatformSegment RestPiece(System.Random rng, PlatformSegment[] tier, Transform parent,
                               string name, out bool isStatic)
     {
         var seg = PickTier(rng, tier, parent, new Vector3(2.6f, 0.5f, 2.6f), name);
-        double tiltRoll = rng.NextDouble();
-        double variantRoll = rng.NextDouble();
-        if (tiltRoll < tiltChance)
-        {
-            int v = (int)(variantRoll * 4.0) & 3; // X±90 / Z±90 중 하나
-            Vector3 axis = (v & 2) == 0 ? Vector3.right : Vector3.forward;
-            seg.transform.rotation = Quaternion.AngleAxis((v & 1) == 0 ? 90f : -90f, axis);
-        }
+        ApplyTilt(rng, seg);
         bool dynamic = false;
         foreach (var rot in seg.GetComponentsInChildren<RotatingPlatform>())
         { rot.Initialize((float)(rng.NextDouble() * 360.0)); dynamic = true; } // 회전 적용 후 위상 캡처
@@ -826,6 +831,7 @@ public class ClimbMapGenerator : MonoBehaviour
 
             float dy = vertical ? Mathf.Clamp(riseLeft, -1.2f, 0.7f) : 0.3f;
             var stone = PickTier(rng, smallPlatforms, root, new Vector3(1.6f, 0.4f, 1.6f), "Link");
+            ApplyTilt(rng, stone);
             cursor = Chain(stone, cursor + to.normalized * Mathf.Min(linkStepMax, Mathf.Max(0.6f, d)) + Vector3.up * dy,
                            ground, laneIndex, ref ordinal, ref footprint, ref made);
         }
@@ -909,6 +915,7 @@ public class ClimbMapGenerator : MonoBehaviour
             float lat = Jit(rng, 0.35f);
             var seg = PickTierDistinct(rng, smallPlatforms, root, new Vector3(1.6f, 0.4f, 1.8f), "Stair", used);
             if (seg == null) break; // 청크 내 중복 금지: 종류 소진 시 조기 종료
+            ApplyTilt(rng, seg);
             cursor = Chain(seg, cursor + F * dx + L * lat + Vector3.up * dy,
                            ground, laneIndex, ref ordinal, ref footprint, ref made);
         }
@@ -932,6 +939,7 @@ public class ClimbMapGenerator : MonoBehaviour
             lat = sign * amp;
             var seg = PickTierDistinct(rng, smallPlatforms, root, new Vector3(1.8f, 0.4f, 2.2f), "Zig", used);
             if (seg == null) break; // 청크 내 중복 금지
+            ApplyTilt(rng, seg);
             cursor = Chain(seg, cursor + F * dx + L * dLat + Vector3.up * dy,
                            ground, laneIndex, ref ordinal, ref footprint, ref made);
             sign = -sign;
@@ -955,6 +963,7 @@ public class ClimbMapGenerator : MonoBehaviour
             var tier = tierRoll < shaftMediumChance ? mediumPlatforms : smallPlatforms;
             var seg = PickTierDistinct(rng, tier, root, new Vector3(1.4f, 0.35f, 1.4f), "ShaftStep", used);
             if (seg == null) break; // 청크 내 중복 금지
+            ApplyTilt(rng, seg);
 
             float dx = Range(rng, shaftForward);
             float dy = Range(rng, shaftRise);
@@ -988,6 +997,7 @@ public class ClimbMapGenerator : MonoBehaviour
             float targetTop = baseY + roomStepRise * (k + 1);
             var piece = PickTierDistinct(rng, tier, root, new Vector3(2f, roomStepRise * (k + 1), 2f), "Room", used);
             if (piece == null) break; // 청크 내 중복 금지
+            ApplyTilt(rng, piece); // 바운즈 측정 전(회전된 포즈로 겹침/높이 계산)
             Bounds pb = piece.WorldBounds;
             var half = new Vector2(pb.extents.x, pb.extents.z);
 
@@ -1086,6 +1096,7 @@ public class ClimbMapGenerator : MonoBehaviour
             float t = i / (float)(steps + 1);
             var p = PickTierDistinct(rng, smallPlatforms, root, new Vector3(1.7f, 0.4f, 1.7f), "Detour", used);
             if (p == null) break; // 청크 내 중복 금지
+            ApplyTilt(rng, p);
             var target = entry + F * (plan.Gap * t)
                                + L * (side * shortcutDetourWidth * Mathf.Sin(Mathf.PI * t))
                                + Vector3.up * (rise * t);
@@ -1095,6 +1106,7 @@ public class ClimbMapGenerator : MonoBehaviour
         // 착지 발판(중 티어): 우회로 합류점이자 지름길 건너편.
         var land = PickTierDistinct(rng, mediumPlatforms, root, new Vector3(2.6f, 0.5f, 2.6f), "ShortcutLand", used);
         if (land == null) land = Slab(root, new Vector3(2.6f, 0.5f, 2.6f), "ShortcutLand");
+        ApplyTilt(rng, land);
         cursor = Chain(land, entry + F * plan.Gap + Vector3.up * rise,
                        ground, laneIndex, ref ordinal, ref footprint, ref made);
     }
@@ -1110,6 +1122,7 @@ public class ClimbMapGenerator : MonoBehaviour
         // 이쪽 끝(중 티어).
         var edge = PickTierDistinct(rng, mediumPlatforms, root, new Vector3(2.6f, 0.5f, 2.6f), "GapEdge", used);
         if (edge == null) edge = Slab(root, new Vector3(2.6f, 0.5f, 2.6f), "GapEdge");
+        ApplyTilt(rng, edge);
         cursor = Chain(edge, cursor + F * 1.6f + L * Jit(rng, 0.4f) + Vector3.up * 0.3f,
                        ground, laneIndex, ref ordinal, ref footprint, ref made);
         Bounds nearB = edge.WorldBounds;
@@ -1117,6 +1130,7 @@ public class ClimbMapGenerator : MonoBehaviour
         // 대단절: 건너편 착지(중 티어). 대각 진행 모서리 지름길은 실측 보정으로 차단.
         var land = PickTierDistinct(rng, mediumPlatforms, root, new Vector3(2.6f, 0.5f, 2.6f), "GapLand", used);
         if (land == null) land = Slab(root, new Vector3(2.6f, 0.5f, 2.6f), "GapLand");
+        ApplyTilt(rng, land); // 앵커/실측 보정 전(회전된 포즈 기준)
         land.transform.position += (cursor + F * plan.Gap + L * Jit(rng, 0.4f) + Vector3.up * 0.4f) - land.EntryWorld;
         for (int it = 0; it < 2; it++)
         {
@@ -1138,6 +1152,7 @@ public class ClimbMapGenerator : MonoBehaviour
         Vector3 F = Fwd(heading);
         var seg = PickTier(rng, largePlatforms, root, new Vector3(4f, 0.6f, 4f), "Landmark");
         seg.transform.localScale *= Mathf.Max(1f, landmarkScale);
+        ApplyTilt(rng, seg);
         float dy = Range(rng, landmarkRise);
         cursor = Chain(seg, cursor + F * 1.8f + Vector3.up * dy,
                        ground, laneIndex, ref ordinal, ref footprint, ref made);

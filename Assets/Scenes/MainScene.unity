@@ -193,10 +193,15 @@ MonoBehaviour:
   movementPadding: 8
   movementHeadroom: 8
   showBoundaryWalls: 0
-  showFinishPlane: 1
+  finishChunkSize: {x: 10, y: 10}
+  finishDetectHeight: 2.5
+  showFinishMarker: 1
   finishMaterial: {fileID: 2100000, guid: 146cf447f94ed524bbdaebbf4cecb7a8, type: 2}
   useSectionLanes: 1
-  targetRisePerLane: 10
+  chunksPerLane: 5
+  chunkTurnMax: 20
+  headingClamp: 45
+  linkStepMax: 1.9
   smallPlatforms:
   - {fileID: 6982759615341400276, guid: 09505e6b22dc2724e8abf17f594fb0a6, type: 3}
   - {fileID: 4437352366994782921, guid: f26e90e85b5da514cb963883f3b1079d, type: 3}
@@ -220,7 +225,7 @@ MonoBehaviour:
   - {fileID: 7236668554491979240, guid: f7ee363c34d8abc409ce7571e2a83d19, type: 3}
   - {fileID: 1622149145969614960, guid: b72792a4493b05b4097eeb5dad5c2b7b, type: 3}
   - {fileID: 1572055631111915911, guid: 0fcba67a65295d048b4dc97963dfbc28, type: 3}
-  tiltChance: 0.12
+  tiltChance: 1
   stairsForward: {x: 1.5, y: 2.1}
   stairsRise: {x: 0.5, y: 0.7}
   zigzagForward: {x: 0.9, y: 1.2}
@@ -237,6 +242,13 @@ MonoBehaviour:
   roomOverlapTolerance: 0.3
   bridgeGap: {x: 4.8, y: 5.6}
   bridgePiece: {fileID: 8329738801583316879, guid: c39c66d74edb8494494562a003b131e9, type: 3}
+  shortcutGap: {x: 4.8, y: 5.6}
+  shortcutDetourWidth: 3.5
+  shortcutDetourSteps: 4
+  shortcutRise: {x: 0.5, y: 0.8}
+  grandGap: {x: 9, y: 13}
+  landmarkScale: 2.2
+  landmarkRise: {x: 0.45, y: 0.7}
   spinCount: 3
   spinSpeed: 35
   spinGapMargin: 0.7
