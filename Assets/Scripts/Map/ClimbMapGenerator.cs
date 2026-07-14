@@ -117,8 +117,8 @@ public class ClimbMapGenerator : MonoBehaviour
     [Header("섹션 레인 — 청크(구간) 유형 기반 생성 (끄면 기존 균일 체인)")]
     [Tooltip("켜면 레인 = 청크(계단/지그재그/수직 샤프트/가구 방/무너진 다리/회전) 체인 + 도착 청크.")]
     [SerializeField] private bool useSectionLanes = true;
-    [Tooltip("레인당 목표 총 상승량(m). 청크를 이 높이 이상이 될 때까지 이어붙인다(초과 허용 — 레인마다 top 이 달라도 된다).")]
-    [SerializeField] private float targetRisePerLane = 10f;
+    [Tooltip("레인당 청크 개수(고정). 맵 높이는 뽑힌 청크 구성에서 자연히 결정된다(상승 예산 없음).")]
+    [SerializeField] private int chunksPerLane = 5;
 
     [Header("청크 연결")]
     [Tooltip("청크 경계에서 진행 방향 회전(도, ±). 0 이면 직선 레인.")]
@@ -253,9 +253,9 @@ public class ClimbMapGenerator : MonoBehaviour
         new Vector3(0f, -islandThickness * 0.5f, 0f),
         new Vector3(islandWidth, islandThickness, IslandDepth));
 
-    // 설정 기반 정상 추정(생성 전 폴백). 섹션 모드는 마지막 청크가 예산을 초과할 수 있어 여유를 더한다.
+    // 설정 기반 정상 추정(생성 전 폴백). 섹션 모드는 청크당 평균 상승 ~3m 근사.
     float EstimatedTop() => useSectionLanes
-        ? targetRisePerLane + 2f
+        ? chunksPerLane * 3f
         : (startGap + Mathf.Max(0, platformsPerLane - 1) * avgGap) * risePerMeter;
 
     Bounds FallbackMovementBounds()
@@ -491,8 +491,6 @@ public class ClimbMapGenerator : MonoBehaviour
         return new Vector3(-Mathf.Sin(rad), 0f, Mathf.Cos(rad));
     }
 
-    bool BudgetLeft(Vector3 cursor) => cursor.y < targetRisePerLane - 0.05f;
-
     // ---- 도착 청크(도달 판정) ----
     readonly List<Bounds> _finishPlates = new List<Bounds>();
 
@@ -614,17 +612,18 @@ public class ClimbMapGenerator : MonoBehaviour
         cursor = Chain(first, new Vector3(cursor.x + startGap, 0.45f, laneZ),
                        ground, laneIndex, ref ordinal, ref footprint, ref made, firstStatic);
 
-        int sectionIdx = 0, bridges = 0;
+        int bridges = 0;
         bool roomUsed = false;
         int forcedBridgeAt = 1 + rng.Next(2); // 청크 1 또는 2 에 무너진 다리 1회 보장
         int last = -1;
 
-        for (int guard = 0; BudgetLeft(cursor) && guard < 12; guard++)
+        // 청크 개수 고정(상승 예산 없음): 맵 높이는 뽑힌 청크 구성에서 자연히 결정된다.
+        for (int chunkIdx = 0; chunkIdx < Mathf.Max(1, chunksPerLane); chunkIdx++)
         {
             // 청크 연결 방향 랜덤 회전(직선 레인 방지). 누적은 headingClamp 로 제한.
             heading = Mathf.Clamp(heading + Jit(rng, chunkTurnMax), -headingClamp, headingClamp);
 
-            int kind = PickSection(rng, sectionIdx, forcedBridgeAt, cursor, ref roomUsed, ref bridges, last);
+            int kind = PickSection(rng, chunkIdx, forcedBridgeAt, ref roomUsed, ref bridges, last);
             last = kind;
             switch ((SectionKind)kind)
             {
@@ -635,10 +634,9 @@ public class ClimbMapGenerator : MonoBehaviour
                 case SectionKind.Bridge: SectionBridge(rng, laneRoot, ground, laneIndex, heading, ref cursor, ref ordinal, ref footprint, ref made); break;
                 case SectionKind.Spin:   SectionSpin(rng, laneRoot, ground, laneIndex, heading, ref cursor, ref ordinal, ref footprint, ref made); break;
             }
-            sectionIdx++;
 
-            // 청크 사이 휴게 발판(중 티어 1개) — 예산이 남은 경우만.
-            if (BudgetLeft(cursor))
+            // 청크 사이 휴게 발판(중 티어 1개) — 마지막 청크 뒤에는 도착 청크가 바로 온다.
+            if (chunkIdx < chunksPerLane - 1)
             {
                 float dx = 1.5f + (float)rng.NextDouble() * 0.5f;
                 float lat = Jit(rng, 0.6f);
@@ -647,11 +645,6 @@ public class ClimbMapGenerator : MonoBehaviour
                                ground, laneIndex, ref ordinal, ref footprint, ref made, restStatic);
             }
         }
-
-        // 단절(무너진 다리) 보증: 상승 예산이 강제 슬롯 전에 소진된 시드에서도
-        // 레인당 최소 1회의 설치 게이트가 성립해야 한다.
-        if (bridges == 0)
-            SectionBridge(rng, laneRoot, ground, laneIndex, heading, ref cursor, ref ordinal, ref footprint, ref made);
 
         // 도착 청크: 시작 청크 같은 큰 발판. 위에 올라서면 도달(IsAtFinish, MatchManager 판정).
         // 레인 top 은 청크가 쌓인 높이 그대로(레인마다 달라도 된다 — 다양성 우선).
@@ -695,18 +688,16 @@ public class ClimbMapGenerator : MonoBehaviour
         return top;
     }
 
-    int PickSection(System.Random rng, int idx, int forcedBridgeAt, Vector3 cursor,
+    int PickSection(System.Random rng, int idx, int forcedBridgeAt,
                     ref bool roomUsed, ref int bridges, int last)
     {
         if (idx == forcedBridgeAt && bridges == 0) { bridges++; return (int)SectionKind.Bridge; }
-        float remaining = targetRisePerLane - cursor.y;
-        float roomRise = roomStepRise * (roomSmallCount + roomMediumCount + roomLargeCount);
         for (int tries = 0; tries < 8; tries++)
         {
             int k = rng.Next(6);
             if (k == last) continue;
-            if (k == (int)SectionKind.Room && (roomUsed || remaining < roomRise + 0.2f)) continue; // 방은 상승 고정형
-            if (k == (int)SectionKind.Bridge && (bridges >= 2 || idx == 0)) continue;              // 첫 청크는 다리 금지
+            if (k == (int)SectionKind.Room && roomUsed) continue;                     // 방은 레인당 1회
+            if (k == (int)SectionKind.Bridge && (bridges >= 2 || idx == 0)) continue; // 첫 청크는 다리 금지
             if (k == (int)SectionKind.Room) roomUsed = true;
             if (k == (int)SectionKind.Bridge) bridges++;
             return k;
@@ -720,7 +711,7 @@ public class ClimbMapGenerator : MonoBehaviour
     {
         Vector3 F = Fwd(heading); Vector3 L = Lat(heading);
         int steps = 4 + rng.Next(3);
-        for (int i = 0; i < steps && BudgetLeft(cursor); i++)
+        for (int i = 0; i < steps; i++)
         {
             float dx = Range(rng, stairsForward);
             float dy = Range(rng, stairsRise);
@@ -739,7 +730,7 @@ public class ClimbMapGenerator : MonoBehaviour
         int steps = 4 + rng.Next(3);
         float sign = rng.NextDouble() < 0.5 ? 1f : -1f;
         float lat = 0f; // 청크 진입점 기준 현재 측면 오프셋
-        for (int i = 0; i < steps && BudgetLeft(cursor); i++)
+        for (int i = 0; i < steps; i++)
         {
             float dx = Range(rng, zigzagForward);
             float dy = Range(rng, zigzagRise);
@@ -763,7 +754,7 @@ public class ClimbMapGenerator : MonoBehaviour
         int steps = 5 + rng.Next(3);
         float sign = rng.NextDouble() < 0.5 ? 1f : -1f;
         float lat = 0f;
-        for (int i = 0; i < steps && BudgetLeft(cursor); i++)
+        for (int i = 0; i < steps; i++)
         {
             double tierRoll = rng.NextDouble();
             var tier = tierRoll < shaftMediumChance ? mediumPlatforms : smallPlatforms;
@@ -885,7 +876,7 @@ public class ClimbMapGenerator : MonoBehaviour
         Vector3 prevCenter = cursor;
         float prevTop = cursor.y;
 
-        for (int i = 0; i < spinCount && BudgetLeft(cursor); i++)
+        for (int i = 0; i < spinCount; i++)
         {
             var seg = PickTier(rng, largePlatforms, root, new Vector3(3.5f, 0.5f, 3.5f), "Spin");
             Bounds b = seg.WorldBounds;
