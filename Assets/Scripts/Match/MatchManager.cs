@@ -412,7 +412,13 @@ namespace RouletteParty.Match
                     continue;
                 }
 
-                if (!pr.ReachedTop && y >= top)
+                // 도달 판정: 도착 청크(큰 발판) 위에 올라서면 완주. 도착 청크가 없는 구성
+                // (레거시 균일 체인)에서는 기존 높이 기준(y >= top)으로 폴백.
+                var gen = ClimbMapGenerator.Instance;
+                bool arrived = gen != null && gen.HasFinishPlates
+                    ? gen.IsAtFinish(new Vector3(po.transform.position.x, y, po.transform.position.z))
+                    : y >= top;
+                if (!pr.ReachedTop && arrived)
                 {
                     pr.ReachedTop = true;
                     pr.TopTime = elapsed;

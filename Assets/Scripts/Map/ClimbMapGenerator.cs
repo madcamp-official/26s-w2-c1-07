@@ -104,17 +104,27 @@ public class ClimbMapGenerator : MonoBehaviour
     [Tooltip("경계벽을 눈에 보이게 렌더링할지(기본: 콜라이더만).")]
     [SerializeField] private bool showBoundaryWalls = false;
 
-    [Header("도착선")]
-    [Tooltip("정상 높이(y = MapHeight, 도달 판정과 동일 기준)에 반투명 도착 평면을 표시한다.")]
-    [SerializeField] private bool showFinishPlane = true;
-    [Tooltip("도착 평면 머티리얼(반투명 권장). 비우면 표시 생략.")]
+    [Header("도착 청크 — 레인 끝의 큰 발판. 위에 올라서면 도달(라운드 목표)")]
+    [Tooltip("도착 발판 크기(진행 방향 x 옆 방향, m). 두께는 시작 청크와 동일 2m.")]
+    [SerializeField] private Vector2 finishChunkSize = new Vector2(10f, 10f);
+    [Tooltip("도달 판정 높이 여유: 발끝이 윗면 위 이 범위 안이면 도달.")]
+    [SerializeField] private float finishDetectHeight = 2.5f;
+    [Tooltip("도착 청크 위에 반투명 도달 볼륨을 표시한다(시각 전용).")]
+    [SerializeField] private bool showFinishMarker = true;
+    [Tooltip("도달 볼륨 머티리얼(반투명 권장). 비우면 표시 생략.")]
     [SerializeField] private Material finishMaterial;
 
     [Header("섹션 레인 — 청크(구간) 유형 기반 생성 (끄면 기존 균일 체인)")]
-    [Tooltip("켜면 레인 = 청크(계단/지그재그/수직 샤프트/가구 방/무너진 다리/회전) 체인.")]
+    [Tooltip("켜면 레인 = 청크(계단/지그재그/수직 샤프트/가구 방/무너진 다리/회전) 체인 + 도착 청크.")]
     [SerializeField] private bool useSectionLanes = true;
-    [Tooltip("레인당 목표 총 상승량(m). 청크를 이 높이까지 이어붙이고 정상 발판은 정확히 +0.5 에 놓는다(전 레인 동일 top).")]
+    [Tooltip("레인당 목표 총 상승량(m). 청크를 이 높이 이상이 될 때까지 이어붙인다(초과 허용 — 레인마다 top 이 달라도 된다).")]
     [SerializeField] private float targetRisePerLane = 10f;
+
+    [Header("청크 연결")]
+    [Tooltip("청크 경계에서 진행 방향 회전(도, ±). 0 이면 직선 레인.")]
+    [SerializeField] private float chunkTurnMax = 20f;
+    [Tooltip("진행 방향 누적 한계(도, ±). 레인이 옆·뒤로 말리는 것 방지.")]
+    [SerializeField] private float headingClamp = 45f;
 
     [Header("크기 티어 발판 — Prefabs/Platforms/{Small,Medium,Large} 폴더와 1:1")]
     [Tooltip("소(최대 변 ~2m): 계단/지그재그/샤프트 스텝. 비우면 기본 도형 슬래브 폴백.")]
@@ -243,9 +253,9 @@ public class ClimbMapGenerator : MonoBehaviour
         new Vector3(0f, -islandThickness * 0.5f, 0f),
         new Vector3(islandWidth, islandThickness, IslandDepth));
 
-    // 설정 기반 정상 추정(생성 전 폴백). 섹션 모드는 정상이 targetRise + 0.5 로 확정이라 정확.
+    // 설정 기반 정상 추정(생성 전 폴백). 섹션 모드는 마지막 청크가 예산을 초과할 수 있어 여유를 더한다.
     float EstimatedTop() => useSectionLanes
-        ? targetRisePerLane + 0.5f
+        ? targetRisePerLane + 2f
         : (startGap + Mathf.Max(0, platformsPerLane - 1) * avgGap) * risePerMeter;
 
     Bounds FallbackMovementBounds()
@@ -317,7 +327,9 @@ public class ClimbMapGenerator : MonoBehaviour
 
         Bounds footprint = island;
         float minLaneTop = float.PositiveInfinity;
+        float maxLaneTop = float.NegativeInfinity;
         int made = 0;
+        _finishPlates.Clear();
 
         for (int lane = 0; lane < laneCount; lane++)
         {
@@ -325,16 +337,21 @@ public class ClimbMapGenerator : MonoBehaviour
                 ? BuildLaneSections(lane, seed, ground, ref footprint, ref made)
                 : BuildLane(lane, seed, ground, ref footprint, ref made);
             minLaneTop = Mathf.Min(minLaneTop, laneTop);
+            maxLaneTop = Mathf.Max(maxLaneTop, laneTop);
         }
 
-        // 정상 높이 = 가장 낮은 레인 정상(어느 레인으로 올라도 도달 가능해야 하므로) - 판정 여유.
-        _topY = (float.IsPositiveInfinity(minLaneTop) ? EstimatedTop() : minLaneTop) - 0.05f;
+        // 정상 높이(점수 정규화 기준):
+        //  - 섹션 모드: 레인 top 이 제각각(다양성 우선) -> 가장 높은 도착 청크. 도달 판정은
+        //    높이가 아니라 도착 청크 위(IsAtFinish)이므로 낮은 레인도 완주 시 만점.
+        //  - 레거시: 가장 낮은 레인 정상 - 판정 여유(기존 계약 유지).
+        _topY = useSectionLanes
+            ? (float.IsNegativeInfinity(maxLaneTop) ? EstimatedTop() : maxLaneTop)
+            : (float.IsPositiveInfinity(minLaneTop) ? EstimatedTop() : minLaneTop) - 0.05f;
 
         // footprint 파생 범위: 설치 허용(좁게) / 이동·경계벽(넓게).
         _placementBounds = WithPad(footprint, placementPadding, -0.5f, _topY + placementHeadroom);
         _movementBounds  = WithPad(footprint, movementPadding, island.min.y - 4f, _topY + movementHeadroom);
         BuildWalls(ground);
-        BuildFinishPlane(footprint);
         _built = true;
 
         Debug.Log($"[ClimbMap] seed={seed} 레인 {laneCount} x 발판 {platformsPerLane} = {made}개, 정상 y={_topY:0.0}");
@@ -459,14 +476,40 @@ public class ClimbMapGenerator : MonoBehaviour
 
     static float Range(System.Random r, Vector2 v) => Mathf.Lerp(v.x, v.y, (float)r.NextDouble());
 
-    // 레인 중심선 복귀 성분(+ 소량 지터). rng 1 드로우 고정.
-    float PullZ(System.Random rng, float curZ, float laneZ) =>
-        Mathf.Clamp((laneZ - curZ) * 0.5f, -1.2f, 1.2f) + ((float)rng.NextDouble() * 2f - 1f) * 0.25f;
+    // 대칭 지터: ±m 균등. rng 1 드로우 고정.
+    static float Jit(System.Random r, float m) => ((float)r.NextDouble() * 2f - 1f) * m;
 
-    float CapDy(float dy, Vector3 cursor) =>
-        Mathf.Min(dy, Mathf.Max(0.15f, targetRisePerLane - cursor.y));
+    // 진행 방향(heading, 도) 기준 전진/측면 단위 벡터. 청크 내부 오프셋은 전부 이 좌표계로 변환된다.
+    static Vector3 Fwd(float headingDeg)
+    {
+        float rad = headingDeg * Mathf.Deg2Rad;
+        return new Vector3(Mathf.Cos(rad), 0f, Mathf.Sin(rad));
+    }
+    static Vector3 Lat(float headingDeg)
+    {
+        float rad = headingDeg * Mathf.Deg2Rad;
+        return new Vector3(-Mathf.Sin(rad), 0f, Mathf.Cos(rad));
+    }
 
     bool BudgetLeft(Vector3 cursor) => cursor.y < targetRisePerLane - 0.05f;
+
+    // ---- 도착 청크(도달 판정) ----
+    readonly List<Bounds> _finishPlates = new List<Bounds>();
+
+    /// <summary>도착 청크(큰 발판)가 있는 맵인지. 없으면(레거시 균일 체인) 높이 판정으로 폴백.</summary>
+    public bool HasFinishPlates => _finishPlates.Count > 0;
+
+    /// <summary>발끝 지점이 어느 도착 청크 위에 있는가(도달 판정, MatchManager 가 호출).</summary>
+    public bool IsAtFinish(Vector3 foot)
+    {
+        for (int i = 0; i < _finishPlates.Count; i++)
+        {
+            Bounds b = _finishPlates[i];
+            if (foot.x < b.min.x || foot.x > b.max.x || foot.z < b.min.z || foot.z > b.max.z) continue;
+            if (foot.y >= b.max.y - 0.4f && foot.y <= b.max.y + finishDetectHeight) return true;
+        }
+        return false;
+    }
 
     // 프리미티브 슬래브 발판(캔디 머티리얼 순환) + PlatformSegment.
     PlatformSegment Slab(Transform parent, Vector3 size, string name)
@@ -564,8 +607,9 @@ public class ClimbMapGenerator : MonoBehaviour
 
         int ordinal = 0;
         Vector3 cursor = new Vector3(islandWidth * 0.5f, 0f, laneZ);
+        float heading = 0f; // 진행 방향(도, 0 = +X). 청크 경계마다 ±chunkTurnMax 회전.
 
-        // 진입 발판(중 티어): 섬 가장자리에서 startGap(항상 점프 가능).
+        // 진입 발판(중 티어): 시작 청크(섬) 가장자리에서 startGap(항상 점프 가능).
         var first = RestPiece(rng, mediumPlatforms, laneRoot, "Entry", out bool firstStatic);
         cursor = Chain(first, new Vector3(cursor.x + startGap, 0.45f, laneZ),
                        ground, laneIndex, ref ordinal, ref footprint, ref made, firstStatic);
@@ -577,16 +621,19 @@ public class ClimbMapGenerator : MonoBehaviour
 
         for (int guard = 0; BudgetLeft(cursor) && guard < 12; guard++)
         {
+            // 청크 연결 방향 랜덤 회전(직선 레인 방지). 누적은 headingClamp 로 제한.
+            heading = Mathf.Clamp(heading + Jit(rng, chunkTurnMax), -headingClamp, headingClamp);
+
             int kind = PickSection(rng, sectionIdx, forcedBridgeAt, cursor, ref roomUsed, ref bridges, last);
             last = kind;
             switch ((SectionKind)kind)
             {
-                case SectionKind.Stairs: SectionStairs(rng, laneRoot, ground, laneIndex, laneZ, ref cursor, ref ordinal, ref footprint, ref made); break;
-                case SectionKind.Zigzag: SectionZigzag(rng, laneRoot, ground, laneIndex, laneZ, ref cursor, ref ordinal, ref footprint, ref made); break;
-                case SectionKind.Shaft:  SectionShaft(rng, laneRoot, ground, laneIndex, laneZ, ref cursor, ref ordinal, ref footprint, ref made); break;
-                case SectionKind.Room:   SectionRoom(rng, laneRoot, ground, laneIndex, laneZ, ref cursor, ref ordinal, ref footprint, ref made); break;
-                case SectionKind.Bridge: SectionBridge(rng, laneRoot, ground, laneIndex, laneZ, ref cursor, ref ordinal, ref footprint, ref made); break;
-                case SectionKind.Spin:   SectionSpin(rng, laneRoot, ground, laneIndex, laneZ, ref cursor, ref ordinal, ref footprint, ref made); break;
+                case SectionKind.Stairs: SectionStairs(rng, laneRoot, ground, laneIndex, heading, ref cursor, ref ordinal, ref footprint, ref made); break;
+                case SectionKind.Zigzag: SectionZigzag(rng, laneRoot, ground, laneIndex, heading, ref cursor, ref ordinal, ref footprint, ref made); break;
+                case SectionKind.Shaft:  SectionShaft(rng, laneRoot, ground, laneIndex, heading, ref cursor, ref ordinal, ref footprint, ref made); break;
+                case SectionKind.Room:   SectionRoom(rng, laneRoot, ground, laneIndex, heading, ref cursor, ref ordinal, ref footprint, ref made); break;
+                case SectionKind.Bridge: SectionBridge(rng, laneRoot, ground, laneIndex, heading, ref cursor, ref ordinal, ref footprint, ref made); break;
+                case SectionKind.Spin:   SectionSpin(rng, laneRoot, ground, laneIndex, heading, ref cursor, ref ordinal, ref footprint, ref made); break;
             }
             sectionIdx++;
 
@@ -594,25 +641,58 @@ public class ClimbMapGenerator : MonoBehaviour
             if (BudgetLeft(cursor))
             {
                 float dx = 1.5f + (float)rng.NextDouble() * 0.5f;
-                float dy = CapDy(0.5f, cursor);
-                float dz = PullZ(rng, cursor.z, laneZ);
+                float lat = Jit(rng, 0.6f);
                 var rest = RestPiece(rng, mediumPlatforms, laneRoot, "Rest", out bool restStatic);
-                cursor = Chain(rest, cursor + new Vector3(dx, dy, dz),
+                cursor = Chain(rest, cursor + Fwd(heading) * dx + Lat(heading) * lat + Vector3.up * 0.5f,
                                ground, laneIndex, ref ordinal, ref footprint, ref made, restStatic);
             }
         }
 
         // 단절(무너진 다리) 보증: 상승 예산이 강제 슬롯 전에 소진된 시드에서도
-        // 레인당 최소 1회의 설치 게이트가 성립해야 한다(다리 상승은 미미해 top 정규화 무영향).
+        // 레인당 최소 1회의 설치 게이트가 성립해야 한다.
         if (bridges == 0)
-            SectionBridge(rng, laneRoot, ground, laneIndex, laneZ, ref cursor, ref ordinal, ref footprint, ref made);
+            SectionBridge(rng, laneRoot, ground, laneIndex, heading, ref cursor, ref ordinal, ref footprint, ref made);
 
-        // 정상 발판(대 티어): 입구를 정확히 targetRise + 0.5 에(전 레인 동일 top).
-        var summit = RestPiece(rng, largePlatforms, laneRoot, "Summit", out bool summitStatic);
-        Vector3 topEntry = new Vector3(cursor.x + 1.9f, targetRisePerLane + 0.5f,
-                                       cursor.z + PullZ(rng, cursor.z, laneZ) * 0.5f);
-        Chain(summit, topEntry, ground, laneIndex, ref ordinal, ref footprint, ref made, summitStatic);
-        return topEntry.y;
+        // 도착 청크: 시작 청크 같은 큰 발판. 위에 올라서면 도달(IsAtFinish, MatchManager 판정).
+        // 레인 top 은 청크가 쌓인 높이 그대로(레인마다 달라도 된다 — 다양성 우선).
+        return BuildFinishChunk(rng, laneRoot, ground, laneIndex, heading, ref cursor, ref ordinal, ref footprint, ref made);
+    }
+
+    // 도착 청크 생성: 진행 방향으로 정렬된 큰 발판 + (선택) 반투명 도달 볼륨. 반환 = 윗면 높이.
+    float BuildFinishChunk(System.Random rng, Transform root, int ground, int laneIndex, float heading,
+                           ref Vector3 cursor, ref int ordinal, ref Bounds footprint, ref int made)
+    {
+        Vector3 F = Fwd(heading);
+        float top = cursor.y + 0.45f;
+        Vector3 centerTop = cursor + F * (2.0f + finishChunkSize.x * 0.5f) + Vector3.up * 0.45f;
+
+        var plate = GameObject.CreatePrimitive(PrimitiveType.Cube);
+        plate.name = "FinishChunk";
+        plate.transform.SetParent(root, false);
+        plate.transform.localScale = new Vector3(finishChunkSize.x, 2f, finishChunkSize.y);
+        plate.transform.SetPositionAndRotation(centerTop - Vector3.up * 1f, Quaternion.Euler(0f, -heading, 0f));
+        if (islandMaterial != null) plate.GetComponent<MeshRenderer>().sharedMaterial = islandMaterial;
+        var seg = plate.AddComponent<PlatformSegment>();
+        Register(seg, ground, laneIndex, ref ordinal, ref footprint, ref made, true);
+
+        // 도달 판정 영역 = 발판의 월드 AABB(회전 포함). 콜라이더 bounds 는 같은 프레임의
+        // 트랜스폼 이동을 물리 동기화 전까지 반영하지 않으므로(스테일) 렌더러 bounds 를 쓴다.
+        _finishPlates.Add(plate.GetComponent<Renderer>().bounds);
+
+        if (showFinishMarker && finishMaterial != null)
+        {
+            var marker = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            marker.name = "FinishMarker";
+            marker.transform.SetParent(plate.transform, false); // 발판 로컬 기준(회전 승계)
+            marker.transform.localScale = new Vector3(0.98f, finishDetectHeight * 0.5f, 0.98f);
+            marker.transform.localPosition = new Vector3(0f, 0.5f + finishDetectHeight * 0.25f, 0f);
+            Destroy(marker.GetComponent<Collider>()); // 시각 전용
+            var mr = marker.GetComponent<MeshRenderer>();
+            mr.sharedMaterial = finishMaterial;
+            mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            mr.receiveShadows = false;
+        }
+        return top;
     }
 
     int PickSection(System.Random rng, int idx, int forcedBridgeAt, Vector3 cursor,
@@ -635,47 +715,54 @@ public class ClimbMapGenerator : MonoBehaviour
     }
 
     // ---- 계단형: 짧고 안정적인 연속 점프. 발판 하나하나 소 티어 랜덤. ----
-    void SectionStairs(System.Random rng, Transform root, int ground, int laneIndex, float laneZ,
+    void SectionStairs(System.Random rng, Transform root, int ground, int laneIndex, float heading,
                        ref Vector3 cursor, ref int ordinal, ref Bounds footprint, ref int made)
     {
+        Vector3 F = Fwd(heading); Vector3 L = Lat(heading);
         int steps = 4 + rng.Next(3);
         for (int i = 0; i < steps && BudgetLeft(cursor); i++)
         {
             float dx = Range(rng, stairsForward);
-            float dy = CapDy(Range(rng, stairsRise), cursor);
-            float dz = PullZ(rng, cursor.z, laneZ) * 0.4f;
+            float dy = Range(rng, stairsRise);
+            float lat = Jit(rng, 0.35f);
             var seg = PickTier(rng, smallPlatforms, root, new Vector3(1.6f, 0.4f, 1.8f), "Stair");
-            cursor = Chain(seg, cursor + new Vector3(dx, dy, dz), ground, laneIndex, ref ordinal, ref footprint, ref made);
+            cursor = Chain(seg, cursor + F * dx + L * lat + Vector3.up * dy,
+                           ground, laneIndex, ref ordinal, ref footprint, ref made);
         }
     }
 
-    // ---- 지그재그형: 레인 중심선 기준 좌우 교대. 발판 하나하나 소 티어 랜덤. ----
-    void SectionZigzag(System.Random rng, Transform root, int ground, int laneIndex, float laneZ,
+    // ---- 지그재그형: 청크 중심선 기준 좌우 교대. 발판 하나하나 소 티어 랜덤. ----
+    void SectionZigzag(System.Random rng, Transform root, int ground, int laneIndex, float heading,
                        ref Vector3 cursor, ref int ordinal, ref Bounds footprint, ref int made)
     {
+        Vector3 F = Fwd(heading); Vector3 L = Lat(heading);
         int steps = 4 + rng.Next(3);
         float sign = rng.NextDouble() < 0.5 ? 1f : -1f;
+        float lat = 0f; // 청크 진입점 기준 현재 측면 오프셋
         for (int i = 0; i < steps && BudgetLeft(cursor); i++)
         {
             float dx = Range(rng, zigzagForward);
-            float dy = CapDy(Range(rng, zigzagRise), cursor);
+            float dy = Range(rng, zigzagRise);
             float amp = Range(rng, zigzagAmp);
+            float dLat = sign * amp - lat;
+            lat = sign * amp;
             var seg = PickTier(rng, smallPlatforms, root, new Vector3(1.8f, 0.4f, 2.2f), "Zig");
-            cursor = Chain(seg, new Vector3(cursor.x + dx, cursor.y + dy, laneZ + sign * amp),
+            cursor = Chain(seg, cursor + F * dx + L * dLat + Vector3.up * dy,
                            ground, laneIndex, ref ordinal, ref footprint, ref made);
             sign = -sign;
         }
     }
 
     // ---- 수직 샤프트형: 좁은 공간 큰 상승(풀홀드 점프 요구). 소/중 티어 혼합. ----
-    // 머리 박힘 없음: 체인 dx 는 "이전 조각 +X 모서리 -> 다음 조각 -X 모서리"의 순수 간격이라
+    // 머리 박힘 없음: 체인 전진은 "이전 조각 출구 모서리 -> 다음 조각 입구 모서리"의 순수 간격이라
     // 조각 몸통(윗면 아래로 늘어진 부분)이 진행 방향 머리 위를 덮는 배치가 기하적으로 안 나온다.
-    void SectionShaft(System.Random rng, Transform root, int ground, int laneIndex, float laneZ,
+    void SectionShaft(System.Random rng, Transform root, int ground, int laneIndex, float heading,
                       ref Vector3 cursor, ref int ordinal, ref Bounds footprint, ref int made)
     {
+        Vector3 F = Fwd(heading); Vector3 L = Lat(heading);
         int steps = 5 + rng.Next(3);
         float sign = rng.NextDouble() < 0.5 ? 1f : -1f;
-        float baseZ = Mathf.Lerp(cursor.z, laneZ, 0.5f);
+        float lat = 0f;
         for (int i = 0; i < steps && BudgetLeft(cursor); i++)
         {
             double tierRoll = rng.NextDouble();
@@ -683,8 +770,10 @@ public class ClimbMapGenerator : MonoBehaviour
             var seg = PickTier(rng, tier, root, new Vector3(1.4f, 0.35f, 1.4f), "ShaftStep");
 
             float dx = Range(rng, shaftForward);
-            float dy = CapDy(Range(rng, shaftRise), cursor);
-            cursor = Chain(seg, new Vector3(cursor.x + dx, cursor.y + dy, baseZ + sign * 0.7f),
+            float dy = Range(rng, shaftRise);
+            float dLat = sign * 0.7f - lat;
+            lat = sign * 0.7f;
+            cursor = Chain(seg, cursor + F * dx + L * dLat + Vector3.up * dy,
                            ground, laneIndex, ref ordinal, ref footprint, ref made);
             sign = -sign;
         }
@@ -693,7 +782,7 @@ public class ClimbMapGenerator : MonoBehaviour
     // ---- 가구 방형: 소/중/대 랜덤 구성 사다리(낮은 단 소 -> 높은 단 대). ----
     // 위치는 이전 단 기준 랜덤 방향(전진 편향)으로 뽑되, 이미 놓인 조각과 XZ 박스가
     // roomOverlapTolerance 이상 관통하면 재시도한다("심하게 겹치지만 않으면" 규칙).
-    void SectionRoom(System.Random rng, Transform root, int ground, int laneIndex, float laneZ,
+    void SectionRoom(System.Random rng, Transform root, int ground, int laneIndex, float heading,
                      ref Vector3 cursor, ref int ordinal, ref Bounds footprint, ref int made)
     {
         float baseY = cursor.y;
@@ -711,11 +800,12 @@ public class ClimbMapGenerator : MonoBehaviour
             Bounds pb = piece.WorldBounds;
             var half = new Vector2(pb.extents.x, pb.extents.z);
 
-            // 위치 샘플: 이전 단에서 roomStepDist 거리, 방향은 전진(+X) 반구 편향. 겹침 시 재시도.
-            Vector2 posXZ = prevXZ + Vector2.right * Range(rng, roomStepDist);
+            // 위치 샘플: 이전 단에서 roomStepDist 거리, 방향은 진행 방향(heading) 반구 편향. 겹침 시 재시도.
+            var fwd2 = new Vector2(Fwd(heading).x, Fwd(heading).z);
+            Vector2 posXZ = prevXZ + fwd2 * Range(rng, roomStepDist);
             for (int t = 0; t < 10; t++)
             {
-                float ang = ((float)rng.NextDouble() * 2f - 1f) * 100f * Mathf.Deg2Rad; // +X 기준 ±100도
+                float ang = (heading + Jit(rng, 100f)) * Mathf.Deg2Rad; // 진행 방향 기준 ±100도
                 float dist = Range(rng, roomStepDist);
                 var cand = prevXZ + new Vector2(Mathf.Cos(ang), Mathf.Sin(ang)) * dist;
 
@@ -741,25 +831,44 @@ public class ClimbMapGenerator : MonoBehaviour
     }
 
     // ---- 무너진 다리형: 플랭크 + 단절 갭(구조물 설치 필요) + 플랭크 ----
-    void SectionBridge(System.Random rng, Transform root, int ground, int laneIndex, float laneZ,
+    void SectionBridge(System.Random rng, Transform root, int ground, int laneIndex, float heading,
                        ref Vector3 cursor, ref int ordinal, ref Bounds footprint, ref int made)
     {
+        Vector3 F = Fwd(heading); Vector3 L = Lat(heading);
         var plankFallback = new Vector3(3.2f, 0.3f, 2.2f);
         int lead = 2 + rng.Next(2);
         for (int i = 0; i < lead; i++)
         {
             float dx = 1.3f + (float)rng.NextDouble() * 0.3f;
             var seg = Piece(bridgePiece, root, plankFallback, "BridgePlank");
-            cursor = Chain(seg, cursor + new Vector3(dx, 0.12f, PullZ(rng, cursor.z, laneZ) * 0.3f),
+            cursor = Chain(seg, cursor + F * dx + L * Jit(rng, 0.3f) + Vector3.up * 0.12f,
                            ground, laneIndex, ref ordinal, ref footprint, ref made);
         }
         // 단절: 점프 불가 거리(>= 4.3). 구조물을 놓아야 건넌다(설치 게이트 게임 핵심).
+        // 대각 진행(heading != 0) 시 축정렬 상판의 모서리끼리 가까워져 갭이 줄어드는 지름길을
+        // 실측(수평 AABB 간격)으로 보정: gap 에 못 미치면 전진 방향으로 보충한다.
         float gap = Range(rng, bridgeGap);
+        Bounds nearB = default;
+        {
+            // 직전 상판(단절의 이쪽 끝) 바운즈.
+            var lastPlank = root.GetChild(root.childCount - 1).GetComponent<PlatformSegment>();
+            if (lastPlank != null) nearB = lastPlank.WorldBounds;
+        }
         var far = Piece(bridgePiece, root, plankFallback, "BridgeFar");
-        cursor = Chain(far, cursor + new Vector3(gap, CapDy(0.4f, cursor), PullZ(rng, cursor.z, laneZ) * 0.3f),
-                       ground, laneIndex, ref ordinal, ref footprint, ref made);
+        far.transform.position += (cursor + F * gap + L * Jit(rng, 0.3f) + Vector3.up * 0.4f) - far.EntryWorld;
+        for (int it = 0; it < 2 && nearB.size.sqrMagnitude > 0f; it++)
+        {
+            Bounds fb = far.WorldBounds;
+            float gx = Mathf.Max(0f, Mathf.Max(fb.min.x - nearB.max.x, nearB.min.x - fb.max.x));
+            float gz = Mathf.Max(0f, Mathf.Max(fb.min.z - nearB.max.z, nearB.min.z - fb.max.z));
+            float hull = Mathf.Sqrt(gx * gx + gz * gz);
+            if (hull >= gap - 0.05f) break;
+            far.transform.position += F * (gap - hull);
+        }
+        Register(far, ground, laneIndex, ref ordinal, ref footprint, ref made, true);
+        cursor = far.ExitWorld;
         var tail = Piece(bridgePiece, root, plankFallback, "BridgePlank");
-        cursor = Chain(tail, cursor + new Vector3(1.4f, 0.12f, 0f),
+        cursor = Chain(tail, cursor + F * 1.4f + Vector3.up * 0.12f,
                        ground, laneIndex, ref ordinal, ref footprint, ref made);
     }
 
@@ -768,9 +877,10 @@ public class ClimbMapGenerator : MonoBehaviour
     // 배치는 중심 간격 기준: 이웃 스윕 원(회전 궤적 반지름 = XZ 대각 절반)이 spinGapMargin
     // 만큼 떨어지게 -> 회전 중 상호 충돌이 없고, 점프 갭은 스윕 원 사이 간격이 된다.
     // 라이브 바운즈는 체인 계산에 쓰지 않는다(커서는 중심+스윕 반지름의 순수 데이터).
-    void SectionSpin(System.Random rng, Transform root, int ground, int laneIndex, float laneZ,
+    void SectionSpin(System.Random rng, Transform root, int ground, int laneIndex, float heading,
                      ref Vector3 cursor, ref int ordinal, ref Bounds footprint, ref int made)
     {
+        Vector3 F = Fwd(heading); Vector3 L = Lat(heading);
         float prevSweep = 0f;      // 0 = 첫 조각(커서는 일반 발판 모서리)
         Vector3 prevCenter = cursor;
         float prevTop = cursor.y;
@@ -781,11 +891,11 @@ public class ClimbMapGenerator : MonoBehaviour
             Bounds b = seg.WorldBounds;
             float sweep = 0.5f * Mathf.Sqrt(b.size.x * b.size.x + b.size.z * b.size.z);
 
-            float dy = CapDy(Range(rng, spinRise), cursor);
+            float dy = Range(rng, spinRise);
             float targetTop = prevTop + dy;
             float dxCenter = prevSweep + sweep + spinGapMargin;
-            float dz = PullZ(rng, prevCenter.z, laneZ) * 0.4f;
-            var center = new Vector3(prevCenter.x + dxCenter, 0f, prevCenter.z + dz);
+            Vector3 centerV = prevCenter + F * dxCenter + L * Jit(rng, 0.8f);
+            var center = new Vector3(centerV.x, 0f, centerV.z);
 
             // 중심을 목표 XZ 에, 윗면을 targetTop 에 정렬.
             seg.transform.position += new Vector3(center.x - b.center.x,
@@ -803,7 +913,7 @@ public class ClimbMapGenerator : MonoBehaviour
             prevCenter = center;
             prevTop = targetTop;
             prevSweep = sweep;
-            cursor = new Vector3(center.x + sweep, targetTop, center.z);
+            cursor = new Vector3(center.x, targetTop, center.z) + F * sweep;
         }
         // 다음 청크는 마지막 스윕 원 가장자리에서 이어진다(회전 조각 위에서 뛰어내리는 감각).
     }
@@ -819,26 +929,6 @@ public class ClimbMapGenerator : MonoBehaviour
         BuildWall("Wall_XNeg", new Vector3(b.min.x - t * 0.5f, cy, b.center.z), new Vector3(t, h, b.size.z + 2f * t), ground);
         BuildWall("Wall_ZPos", new Vector3(b.center.x, cy, b.max.z + t * 0.5f), new Vector3(b.size.x + 2f * t, h, t), ground);
         BuildWall("Wall_ZNeg", new Vector3(b.center.x, cy, b.min.z - t * 0.5f), new Vector3(b.size.x + 2f * t, h, t), ground);
-    }
-
-    // ============================ 도착선 (footprint 파생, 시드마다) ============================
-    // 정상 높이(_topY = 도달 판정 기준)에 맵 전체를 덮는 반투명 평면을 띄운다:
-    // "이 면을 넘으면 도착"이 판정과 1:1 로 일치하는 정직한 표시. 콜라이더 없음(시각 전용),
-    // Ground 레이어가 아니므로 카메라 오클루전에도 걸리지 않는다.
-    void BuildFinishPlane(Bounds footprint)
-    {
-        if (!showFinishPlane || finishMaterial == null) return;
-
-        var plane = GameObject.CreatePrimitive(PrimitiveType.Cube);
-        plane.name = "FinishPlane";
-        plane.transform.SetParent(_structureRoot.transform, false);
-        plane.transform.position = new Vector3(footprint.center.x, _topY, footprint.center.z);
-        plane.transform.localScale = new Vector3(footprint.size.x + 6f, 0.05f, footprint.size.z + 6f);
-        Destroy(plane.GetComponent<Collider>()); // 시각 전용 — 이동/설치에 간섭 금지
-        var mr = plane.GetComponent<MeshRenderer>();
-        mr.sharedMaterial = finishMaterial;
-        mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-        mr.receiveShadows = false;
     }
 
     void BuildWall(string name, Vector3 pos, Vector3 scale, int layer)
