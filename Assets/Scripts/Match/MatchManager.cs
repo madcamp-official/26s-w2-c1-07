@@ -52,6 +52,10 @@ namespace RouletteParty.Match
         [Tooltip("첫 정상 도달자가 나오면 잔여 타이머를 이 값으로 단축.")]
         [SerializeField] private float _finishGrace = 15f;
 
+        [Header("씬 분리")]
+        [Tooltip("결과 화면 종료 후 돌아갈 대기방 씬 이름(빌드 설정 등록 필수). 비우면 기존처럼 같은 씬의 LOBBY 페이즈로 복귀(레거시 단일 씬).")]
+        [SerializeField] private string _lobbySceneName = "LobbyScene";
+
         [Header("스폰")]
         [Tooltip("출발 지점 플레이어 간 X 간격.")]
         [SerializeField] private float spawnSpacingX = 1.2f;
@@ -291,9 +295,26 @@ namespace RouletteParty.Match
                     EnterPhase(MatchPhase.Prep); // 매 라운드 전 준비(핵심 변경점)
                     break;
                 case MatchPhase.Result:
-                    EnterPhase(MatchPhase.Lobby);
+                    if (!TryReturnToLobbyScene())
+                        EnterPhase(MatchPhase.Lobby); // 레거시 단일 씬 폴백
                     break;
             }
+        }
+
+        // 씬 분리: 결과 후 대기방 씬으로 복귀(NGO 씬 동기화 - 전 클라 함께 전환).
+        // 구조물은 동적 스폰이라 씬 전환에도 살아남으므로 먼저 정리한다(대기방 반입 방지).
+        // 씬 미설정/로드 실패 시 false -> 호출부가 기존 LOBBY 페이즈로 폴백.
+        private bool TryReturnToLobbyScene()
+        {
+            if (string.IsNullOrEmpty(_lobbySceneName) || NetworkManager.SceneManager == null) return false;
+            DespawnAllStructures();
+            var status = NetworkManager.SceneManager.LoadScene(_lobbySceneName, UnityEngine.SceneManagement.LoadSceneMode.Single);
+            if (status != Unity.Netcode.SceneEventProgressStatus.Started)
+            {
+                Debug.LogError($"[Match] 대기방 씬 로드 실패: {status} (빌드 설정에 '{_lobbySceneName}' 등록 확인)");
+                return false;
+            }
+            return true;
         }
 
         private void ResetMatch()

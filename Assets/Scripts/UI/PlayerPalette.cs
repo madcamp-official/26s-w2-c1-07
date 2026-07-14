@@ -24,7 +24,8 @@ namespace RouletteParty.UI
 
         public static Color ColorFor(ulong clientId) => Colors[(int)(clientId % (ulong)Colors.Length)];
 
-        /// <summary>대기방에서 정한 닉네임(전 피어 복제)이 있으면 사용, 없으면 P{n} 폴백.</summary>
+        /// <summary>대기방에서 정한 닉네임(전 피어 복제)이 있으면 사용, 없으면 P{n} 폴백.
+        /// 씬 분리 후 게임 씬에는 LobbyManager 가 없으므로 마지막 스냅샷을 이어서 쓴다.</summary>
         public static string NameFor(ulong clientId)
         {
             var lm = RouletteParty.Match.LobbyManager.Instance;
@@ -33,6 +34,8 @@ namespace RouletteParty.UI
                 string n = lm.NameOf(clientId);
                 if (!string.IsNullOrEmpty(n)) return n;
             }
+            string snap = RouletteParty.Match.LobbyManager.SnapshotNameOf(clientId);
+            if (!string.IsNullOrEmpty(snap)) return snap;
             return $"P{clientId + 1}";
         }
     }

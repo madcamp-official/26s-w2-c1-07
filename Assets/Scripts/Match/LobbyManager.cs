@@ -68,7 +68,24 @@ namespace RouletteParty.Match
         [Tooltip("방 정원. 초과 접속은 접속 승인(ConnectionService) 단계에서 거절된다.")]
         [SerializeField] private int _maxPlayers = 4;
 
+        [Header("씬 분리 (대기방 씬 전용)")]
+        [Tooltip("게임 시작 시 NGO 씬 동기화로 로드할 게임 씬 이름(빌드 설정 등록 필수). 같은 씬에 MatchManager 가 있으면(레거시 단일 씬) 씬 전환 없이 기존 FSM 으로 시작한다.")]
+        [SerializeField] private string _gameSceneName = "MainScene";
+        [Tooltip("대기방 스테이지 기준점(플레이어 줄 세우기). 게임 씬에는 MatchManager 가 배치를 담당하므로 대기방 씬에서만 배선한다. 비우면 배치 생략.")]
+        [SerializeField] private Transform _stagePoint;
+        [Tooltip("스테이지 줄 세우기 간격(m).")]
+        [SerializeField] private float _stageSpacing = 1.2f;
+
         private NetworkList<LobbyPlayerState> _players = new NetworkList<LobbyPlayerState>();
+
+        // 게임 씬에는 LobbyManager 가 없으므로(씬 분리) 마지막 대기방 닉네임을 정적으로 남긴다.
+        // 모든 피어가 자기 복제본(NetworkList)에서 스냅샷을 뜨므로 전 피어 동일 - PlayerPalette 폴백.
+        private static readonly System.Collections.Generic.Dictionary<ulong, string> s_lastNames
+            = new System.Collections.Generic.Dictionary<ulong, string>();
+
+        /// <summary>마지막으로 알려진 대기방 닉네임(없으면 null). 게임 씬에서 이름표/점수판이 사용.</summary>
+        public static string SnapshotNameOf(ulong clientId) =>
+            s_lastNames.TryGetValue(clientId, out string n) ? n : null;
 
         // 서버: LOBBY 재진입 감지용(결과 후 복귀 시 준비 초기화)
         private MatchPhase _lastSeenPhase = (MatchPhase)byte.MaxValue;
@@ -98,20 +115,54 @@ namespace RouletteParty.Match
         public override void OnNetworkSpawn()
         {
             Instance = this;
+            _players.OnListChanged += HandleListChanged; // 닉네임 스냅샷 동기화(전 피어)
+            SyncNameSnapshot();
             if (!IsServer) return;
 
             NetworkManager.OnClientConnectedCallback  += HandleClientConnected;
             NetworkManager.OnClientDisconnectCallback += HandleClientDisconnected;
+            int i = 0, n = NetworkManager.ConnectedClientsList.Count;
             foreach (var c in NetworkManager.ConnectedClientsList)
+            {
                 AddPlayer(c.ClientId);
+                PlaceOnStage(c.ClientId, i++, n); // 게임에서 복귀 시 스테이지 재배치(씬 분리)
+            }
         }
 
         public override void OnNetworkDespawn()
         {
+            SyncNameSnapshot(); // 게임 씬 전환 직전 마지막 닉네임 보존
+            _players.OnListChanged -= HandleListChanged;
             if (Instance == this) Instance = null;
             if (!IsServer) return;
             NetworkManager.OnClientConnectedCallback  -= HandleClientConnected;
             NetworkManager.OnClientDisconnectCallback -= HandleClientDisconnected;
+        }
+
+        private void HandleListChanged(NetworkListEvent<LobbyPlayerState> _) => SyncNameSnapshot();
+
+        private void SyncNameSnapshot()
+        {
+            for (int i = 0; i < _players.Count; i++)
+                s_lastNames[_players[i].ClientId] = _players[i].Name.ToString();
+        }
+
+        // ---- 스테이지 배치(씬 분리): 대기방 씬에는 MatchManager 가 없으므로 로비가 담당 ----
+        private void PlaceOnStage(ulong clientId, int index, int total)
+        {
+            if (_stagePoint == null) return;
+            Vector3 pos = _stagePoint.position
+                + _stagePoint.forward * ((index - (Mathf.Max(1, total) - 1) * 0.5f) * _stageSpacing)
+                + Vector3.up * 1.2f;
+            TeleportPlayerRpc(pos, RpcTarget.Single(clientId, RpcTargetUse.Temp));
+        }
+
+        [Rpc(SendTo.SpecifiedInParams)]
+        private void TeleportPlayerRpc(Vector3 pos, RpcParams rpcParams = default)
+        {
+            var po = NetworkManager.LocalClient != null ? NetworkManager.LocalClient.PlayerObject : null;
+            var pc = po != null ? po.GetComponent<RouletteParty.Net.PlayerController>() : null;
+            if (pc != null) pc.TeleportTo(pos);
         }
 
         // 서버: 페이즈 변화를 관찰해 LOBBY 재진입 시 준비 상태를 초기화한다.
@@ -129,7 +180,11 @@ namespace RouletteParty.Match
         }
 
         // ============================ 서버 훅(연결) ============================
-        private void HandleClientConnected(ulong clientId) => AddPlayer(clientId);
+        private void HandleClientConnected(ulong clientId)
+        {
+            AddPlayer(clientId);
+            PlaceOnStage(clientId, _players.Count - 1, Mathf.Max(1, _players.Count));
+        }
         private void HandleClientDisconnected(ulong clientId) => RemovePlayer(clientId);
 
         private void AddPlayer(ulong clientId)
@@ -200,8 +255,9 @@ namespace RouletteParty.Match
         [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Everyone)]
         public void SetReadyServerRpc(bool ready, RpcParams rpcParams = default)
         {
+            // 씬 분리: 대기방 씬에는 MatchManager 가 없다(없음 = 대기방 상태로 취급).
             var mm = MatchManager.Instance;
-            if (mm == null || !mm.IsSpawned || mm.CurrentPhase != MatchPhase.Lobby) return;
+            if (mm != null && mm.IsSpawned && mm.CurrentPhase != MatchPhase.Lobby) return;
 
             ulong sender = rpcParams.Receive.SenderClientId;
             for (int i = 0; i < _players.Count; i++)
@@ -222,8 +278,9 @@ namespace RouletteParty.Match
         [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Everyone)]
         public void StartGameServerRpc(RpcParams rpcParams = default)
         {
+            // 씬 분리: 대기방 씬에는 MatchManager 가 없다(없음 = 대기방 상태로 취급).
             var mm = MatchManager.Instance;
-            if (mm == null || !mm.IsSpawned || mm.CurrentPhase != MatchPhase.Lobby) return;
+            if (mm != null && mm.IsSpawned && mm.CurrentPhase != MatchPhase.Lobby) return;
 
             ulong sender = rpcParams.Receive.SenderClientId;
             bool senderIsHost = false;
@@ -244,7 +301,14 @@ namespace RouletteParty.Match
             if (count < _minPlayers || !allReady) return;
 
             Debug.Log($"[Lobby] 게임 시작 (인원 {count})");
-            mm.StartMatchFromLobby();
+
+            // 레거시 단일 씬(같은 씬에 MatchManager): 씬 전환 없이 기존 FSM 진입.
+            if (mm != null && mm.IsSpawned) { mm.StartMatchFromLobby(); return; }
+
+            // 씬 분리: 게임 씬 로드(NGO 씬 동기화 - 전 클라 함께 전환, 대기방 씬 오브젝트는 despawn).
+            var status = NetworkManager.SceneManager.LoadScene(_gameSceneName, UnityEngine.SceneManagement.LoadSceneMode.Single);
+            if (status != SceneEventProgressStatus.Started)
+                Debug.LogError($"[Lobby] 게임 씬 로드 실패: {status} (빌드 설정에 '{_gameSceneName}' 등록 확인)");
         }
     }
 }

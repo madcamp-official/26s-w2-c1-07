@@ -178,7 +178,10 @@ public class PlayerController : NetworkBehaviour
     MatchPhase Phase()
     {
         var mm = MatchManager.Instance;
-        return (mm != null && mm.IsSpawned) ? mm.CurrentPhase : MatchPhase.Play; // 매치 없으면 자유 등반 테스트
+        if (mm != null && mm.IsSpawned) return mm.CurrentPhase;
+        // 씬 분리: 매치 없이 대기방(LobbyManager)만 있으면 대기방 씬 -> 로비 규칙(입력 잠금·커서 해제).
+        if (LobbyManager.Instance != null && LobbyManager.Instance.IsSpawned) return MatchPhase.Lobby;
+        return MatchPhase.Play; // 둘 다 없으면 자유 등반 테스트
     }
 
     void Update()
