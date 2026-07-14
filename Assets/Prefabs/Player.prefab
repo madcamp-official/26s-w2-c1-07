@@ -122,7 +122,7 @@ MonoBehaviour:
   aimMinPitch: -70
   aimMaxPitch: 70
   aimDistance: 4.5
-  aimShoulder: 0.7
+  aimShoulder: 0
   aimHeight: 1.6
   aimRayDistance: 500
   lookResetPitch: 0

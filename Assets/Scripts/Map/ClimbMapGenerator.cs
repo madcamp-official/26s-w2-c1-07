@@ -139,6 +139,10 @@ public class ClimbMapGenerator : MonoBehaviour
     [Tooltip("발판이 90도 회전(눕힘/세움)된 형태로 나올 확률. 모든 정적 발판 대상(회전/다리 조각·도착 청크 제외).")]
     [SerializeField, Range(0f, 1f)] private float tiltChance = 1f;
 
+    [Header("발판 겹침 정리 (생성 후처리)")]
+    [Tooltip("발판 AABB 가 세 축 모두 이 깊이(m) 이상 서로 관통하면 나중에 생성된 쪽을 삭제한다(생성 순서 기준 결정론 규칙 = 전 피어 동일). 단, 삭제로 레인 경로가 점프 불가가 되는 경우(계단형 겹침)는 예외적으로 유지한다. 시작 섬·도착 청크는 항상 유지. 0 이하 = 비활성.")]
+    [SerializeField] private float overlapCullDepth = 0.25f;
+
     [Header("청크: 계단 (소 티어, 발판마다 랜덤)")]
     [Tooltip("步당 전진(min,max). 조각 폭(~2)보다 작으면 겹침 계단, 크면 소갭.")]
     [SerializeField] private Vector2 stairsForward = new Vector2(1.5f, 2.1f);
@@ -278,6 +282,8 @@ public class ClimbMapGenerator : MonoBehaviour
     Bounds _movementBounds;      // 이동/비행 범위(경계벽 기준)
     Bounds _islandArea;          // 시작 섬 영역(여유 포함, 설치 금지)
     readonly List<PlatformRegion> _regions = new List<PlatformRegion>();
+    // _regions 와 1:1 정렬된 실물 발판(겹침 정리용). 시작 섬 등 세그먼트 없는 영역은 null.
+    readonly List<PlatformSegment> _regionSegs = new List<PlatformSegment>();
     int _fallbackMatIndex;
 
     GameObject _staticRoot;      // 시작 섬(설정만 의존, 1회)
@@ -348,6 +354,7 @@ public class ClimbMapGenerator : MonoBehaviour
         _structureRoot = new GameObject("ClimbMap_Structures");
         _structureRoot.transform.SetParent(transform, false);
         _regions.Clear();
+        _regionSegs.Clear();
         _fallbackMatIndex = 0;
         _regionChunk = 0;
         ScoringChunkCount = useSectionLanes ? Mathf.Max(1, chunksPerLane) + 1 : 0;
@@ -362,6 +369,7 @@ public class ClimbMapGenerator : MonoBehaviour
             Id = 0, LaneIndex = -1, Ordinal = 0,
             InnerBounds = island, AreaBounds = _islandArea,
         });
+        _regionSegs.Add(null); // 시작 섬은 세그먼트 없음(겹침 정리 대상 아님)
 
         Bounds footprint = island;
         float minLaneTop = float.PositiveInfinity;
@@ -414,6 +422,8 @@ public class ClimbMapGenerator : MonoBehaviour
             // 레거시: 가장 낮은 레인 정상 - 판정 여유(기존 계약 유지).
             _topY = (float.IsPositiveInfinity(minLaneTop) ? EstimatedTop() : minLaneTop) - 0.05f;
         }
+
+        CullOverlappingPlatforms(); // 겹침 발판 정리(생성 순서 기준 결정론 -> 전 피어 동일)
 
         // footprint 파생 범위: 설치 허용(좁게) / 이동·경계벽(넓게).
         _placementBounds = WithPad(footprint, placementPadding, -0.5f, _topY + placementHeadroom);
@@ -481,6 +491,7 @@ public class ClimbMapGenerator : MonoBehaviour
                 Id = _regions.Count, LaneIndex = laneIndex, Ordinal = i,
                 InnerBounds = inner, AreaBounds = Expanded(inner, regionPadding),
             });
+            _regionSegs.Add(seg);
             footprint.Encapsulate(inner.min);
             footprint.Encapsulate(inner.max);
 
@@ -688,6 +699,98 @@ public class ClimbMapGenerator : MonoBehaviour
     // 발판 등록 시 부여할 청크 순번(점수 선착순용). 각 빌드 단계가 등록 전에 설정한다.
     int _regionChunk;
 
+    // 플레이어 점프 물리 포락선(자동 감사와 동일 상수: 풀점프 v0 6.32, 중력 20, 수평 6m/s).
+    // 반환 = 해당 상승(rise)으로 도달 가능한 최대 수평 간격(불가능하면 음수).
+    static float JumpEnvelope(float rise)
+    {
+        float disc = 39.9f - 40f * rise;
+        if (disc < 0f) return -1f;
+        return 6f * (6.32f + Mathf.Sqrt(disc)) / 20f;
+    }
+
+    // a 윗면에서 b 윗면으로 점프 가능한가(모서리 수평 간격 vs 포락선, 감사와 같은 여유 0.2).
+    static bool Jumpable(Bounds a, Bounds b)
+    {
+        float gx = Mathf.Max(0f, Mathf.Max(b.min.x - a.max.x, a.min.x - b.max.x));
+        float gz = Mathf.Max(0f, Mathf.Max(b.min.z - a.max.z, a.min.z - b.max.z));
+        float gap = Mathf.Sqrt(gx * gx + gz * gz);
+        float env = JumpEnvelope(b.max.y - a.max.y);
+        return env >= 0f && gap <= env - 0.2f;
+    }
+
+    // 겹침 발판 정리(생성 후처리): 앞서 유지된 발판과 AABB 가 세 축 모두 overlapCullDepth 이상
+    // 관통하는 발판(나중 생성 쪽)을 삭제한다. 단, 삭제 후에도 레인 경로가 이어져야 한다:
+    // 같은 레인의 인접 유지 이웃(prev/next)끼리 직접, 또는 겹침 상대(partner)를 경유해
+    // 점프 가능할 때만 삭제(계단형 겹침 = 둘 다 경로 필수 -> 유지). 순수 기하 + 생성 순서
+    // 규칙이라 전 피어 동일. 시작 섬·도착 청크(LaneIndex < 0)는 항상 유지.
+    void CullOverlappingPlatforms()
+    {
+        if (overlapCullDepth <= 0f) return;
+
+        int n = _regions.Count;
+        var removed = new bool[n];
+        int removedCount = 0, keptForPath = 0;
+
+        for (int i = 0; i < n; i++)
+        {
+            if (_regions[i].LaneIndex < 0 || _regionSegs[i] == null) continue;
+            Bounds b = _regions[i].InnerBounds;
+
+            // 겹침 상대: 먼저 생성됐고 아직 유지 중인 발판 중 첫 번째(결정론).
+            int partner = -1;
+            for (int j = 0; j < i; j++)
+            {
+                if (removed[j] || _regions[j].LaneIndex < 0) continue;
+                Bounds a = _regions[j].InnerBounds;
+                float px = Mathf.Min(b.max.x, a.max.x) - Mathf.Max(b.min.x, a.min.x);
+                float py = Mathf.Min(b.max.y, a.max.y) - Mathf.Max(b.min.y, a.min.y);
+                float pz = Mathf.Min(b.max.z, a.max.z) - Mathf.Max(b.min.z, a.min.z);
+                if (px > overlapCullDepth && py > overlapCullDepth && pz > overlapCullDepth)
+                { partner = j; break; }
+            }
+            if (partner < 0) continue;
+
+            // 경로 보존 검사: 같은 레인의 인접 유지 이웃(순번 기준 prev/next).
+            int lane = _regions[i].LaneIndex, ord = _regions[i].Ordinal;
+            int prev = -1, next = -1;
+            for (int j = 0; j < n; j++)
+            {
+                if (j == i || removed[j] || _regions[j].LaneIndex != lane) continue;
+                int o = _regions[j].Ordinal;
+                if (o < ord && (prev < 0 || o > _regions[prev].Ordinal)) prev = j;
+                if (o > ord && (next < 0 || o < _regions[next].Ordinal)) next = j;
+            }
+            Bounds pa = _regions[partner].InnerBounds;
+            bool ok;
+            if (prev >= 0 && next >= 0)
+                ok = Jumpable(_regions[prev].InnerBounds, _regions[next].InnerBounds)
+                     || (Jumpable(_regions[prev].InnerBounds, pa) && Jumpable(pa, _regions[next].InnerBounds));
+            else if (next >= 0) ok = Jumpable(pa, _regions[next].InnerBounds);
+            else if (prev >= 0) ok = Jumpable(_regions[prev].InnerBounds, pa);
+            else ok = true;
+
+            if (!ok) { keptForPath++; continue; }
+            removed[i] = true;
+            removedCount++;
+            Destroy(_regionSegs[i].gameObject);
+        }
+
+        if (removedCount == 0) return;
+        var keptRegions = new List<PlatformRegion>(n - removedCount);
+        var keptSegs = new List<PlatformSegment>(n - removedCount);
+        for (int i = 0; i < n; i++)
+        {
+            if (removed[i]) continue;
+            var r = _regions[i];
+            r.Id = keptRegions.Count; // Id == 리스트 인덱스 계약 유지(TryGetRegionAt)
+            keptRegions.Add(r);
+            keptSegs.Add(_regionSegs[i]);
+        }
+        _regions.Clear(); _regions.AddRange(keptRegions);
+        _regionSegs.Clear(); _regionSegs.AddRange(keptSegs);
+        Debug.Log($"[ClimbMap] 겹침 발판 정리: {removedCount}개 삭제, {keptForPath}개는 경로 보존을 위해 유지(관통 한도 {overlapCullDepth}m)");
+    }
+
     // 조각 공통 등록: 레이어/정적/영역/footprint. boundsOverride = 회전체(교차로)용 정적 AABB.
     void Register(PlatformSegment seg, int ground, int laneIndex, ref int ordinal,
                   ref Bounds footprint, ref int made, bool makeStatic, Bounds? boundsOverride = null)
@@ -700,6 +803,7 @@ public class ClimbMapGenerator : MonoBehaviour
             Id = _regions.Count, LaneIndex = laneIndex, Ordinal = ordinal++, ChunkIndex = _regionChunk,
             InnerBounds = inner, AreaBounds = Expanded(inner, regionPadding),
         });
+        _regionSegs.Add(seg);
         footprint.Encapsulate(inner.min);
         footprint.Encapsulate(inner.max);
         made++;
