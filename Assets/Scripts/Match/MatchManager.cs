@@ -38,8 +38,8 @@ namespace RouletteParty.Match
         [Tooltip("켜면 모든 페이즈 시간이 fastMultiplier 배로 줄어든다(빠른 테스트).")]
         [SerializeField] private bool fastMode = false;
         [SerializeField, Range(0.05f, 1f)] private float fastMultiplier = 0.25f;
-        [Tooltip("우상단 디버그 패널 표시.")]
-        [SerializeField] private bool showDebugGui = true;
+        [Tooltip("좌상단 디버그 패널 표시(개발 전용 - 배포 화면에는 끔).")]
+        [SerializeField] private bool showDebugGui = false;
 
         [Header("페이즈 시간(초)")]
         [SerializeField] private float _lobbyDuration     = 3f;

@@ -81,9 +81,9 @@ namespace RouletteParty.Match
         private GameObject _activeBlueprint;
         private Material _previewMat;
 
-        private readonly Rect _panelRect = new Rect(10, 290, 400, 330);
-        private GUIStyle _rich;
-        private GUIStyle _toastStyle;
+        // 카트라이더식 아이템 슬롯 바(좌상단): 현재 선택 = 큰 슬롯, 나머지 큐 = 작은 슬롯.
+        // 상세 설명은 전부 F1 도움말(SettingsManager 설명 탭)로 이동 - 화면에는 슬롯만.
+        private GUIStyle _slotSel, _slotIdle, _badge, _hint, _toastStyle;
 
         private bool Active =>
             MatchManager.Instance != null &&
@@ -387,79 +387,83 @@ namespace RouletteParty.Match
             _thumbs.Clear();
         }
 
-        // 배치 큐 시각화: 실물 썸네일 한 줄, 선택 항목은 노란 테두리 + 불투명 강조.
-        private void DrawQueue()
+        // ============================ OnGUI (카트라이더식 슬롯 바) ============================
+        private void EnsureStyles()
         {
-            const float size = 52f;
-            GUILayout.BeginHorizontal();
-            for (int i = 0; i < _queue.Count; i++)
-            {
-                var t = _queue[i];
-                Rect r = GUILayoutUtility.GetRect(size, size, GUILayout.Width(size), GUILayout.Height(size));
-                bool selHere = i == Mathf.Clamp(_queueIndex, 0, _queue.Count - 1);
+            if (_slotSel != null) return;
+            _slotSel = new GUIStyle(GUI.skin.box)
+            { border = new RectOffset(UiKit.ImguiBorder, UiKit.ImguiBorder, UiKit.ImguiBorder, UiKit.ImguiBorder) };
+            _slotSel.normal.background = UiKit.BorderedTex(UiKit.Yellow, UiKit.Ink); // 선택 = 노란 슬롯
 
-                if (selHere)
-                {
-                    GUI.color = new Color(1f, 0.9f, 0.2f);
-                    GUI.DrawTexture(new Rect(r.x - 3, r.y - 3, r.width + 6, r.height + 6), Texture2D.whiteTexture);
-                }
-                GUI.color = selHere ? Color.white : new Color(1f, 1f, 1f, 0.55f);
-                var tex = ThumbFor(t);
-                if (tex != null) GUI.DrawTexture(r, tex, ScaleMode.ScaleToFit);
-                else GUI.Box(r, "?");
-                if (t == StructureType.Invisible)
-                {
-                    GUI.color = selHere ? new Color(0.7f, 0.9f, 1f) : new Color(0.7f, 0.9f, 1f, 0.7f);
-                    GUI.Label(new Rect(r.x, r.yMax - 20f, r.width, 20f), "투명", _rich);
-                }
-                GUI.color = Color.white;
-                GUILayout.Space(6);
-            }
-            GUILayout.EndHorizontal();
+            _slotIdle = new GUIStyle(_slotSel);
+            _slotIdle.normal.background = UiKit.BorderedTex(UiKit.Cream, UiKit.Ink); // 대기 = 크림 슬롯
+
+            _badge = new GUIStyle(GUI.skin.label)
+            { fontSize = 16, fontStyle = FontStyle.Bold, alignment = TextAnchor.LowerCenter };
+            _badge.normal.textColor = UiKit.Ink;
+
+            _hint = new GUIStyle(GUI.skin.label) { fontSize = 16, richText = true };
+            _hint.normal.textColor = Color.white;
+
+            _toastStyle = new GUIStyle(GUI.skin.box)
+            {
+                fontSize = 26, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleCenter,
+                border = new RectOffset(UiKit.ImguiBorder, UiKit.ImguiBorder, UiKit.ImguiBorder, UiKit.ImguiBorder),
+            };
+            _toastStyle.normal.background = UiKit.BorderedTex(UiKit.Red, UiKit.Ink);
+            _toastStyle.normal.textColor = Color.white;
         }
 
-        // ============================ OnGUI (정보/안내) ============================
         private void OnGUI()
         {
             if (!Active) return;
-            if (_rich == null) _rich = new GUIStyle(GUI.skin.label) { richText = true };
-
+            EnsureStyles();
             ImguiScale.Apply(); // 이하 좌표는 1080p 기준 가상 픽셀
-            GUILayout.BeginArea(_panelRect, GUI.skin.box);
-            GUILayout.Label("<b>준비</b> — 구조물 설치 (자유 비행)", _rich);
-            GUILayout.Label("비행: WASD 수평 + 마우스 시선, Space 상승 / Shift 하강", _rich);
 
-            GUILayout.Space(4);
-            GUILayout.Label("배치 큐  <b>[Alt]</b> 순서 토글   <b>[1]</b> 보이는 <b>[2]</b> 투명 점프", _rich);
-            DrawQueue();
-            StructureType? sel = _queue.Count > 0
-                ? _queue[Mathf.Clamp(_queueIndex, 0, _queue.Count - 1)] : (StructureType?)null;
-            GUILayout.Label(sel.HasValue
-                ? $"선택: <b>{TypeKorean(sel.Value)}</b>"
-                : "<b>이번 라운드 구조물을 전부 설치했습니다</b>", _rich);
-            GUILayout.Label($"회전  <b>[R]</b>Y {_yawStep * 90}°  <b>[T]</b>X {_pitchStep * 90}°  <b>[G]</b>Z {_rollStep * 90}°", _rich);
-            GUILayout.Label(_airMode
-                ? $"모드 <b>[Q]</b>: <b>공중</b> (거리 {_airDistance:0.#}m, 휠로 조절)"
-                : "모드 <b>[Q]</b>: <b>표면</b> (구조물 조준 시 그 위로 스냅)", _rich);
-
-            GUILayout.Space(4);
-            GUILayout.Label($"남은 개수  보이는 <b>{RemainingVisible()}</b>/{MatchManager.Instance.VisibleGrant}" +
-                            $"   안 보이는 <b>{RemainingInvisible()}</b>/{MatchManager.Instance.InvisibleGrant}", _rich);
-            GUILayout.Label("<b>좌클릭</b>으로 설치 (설치물은 3라운드 누적)", _rich);
-            GUILayout.EndArea();
+            DrawSlotBar();
 
             // 함정 겹침 거부 경고(서버 통지). 화면 중앙 위쪽에 잠깐 표시.
             if (Time.unscaledTime < _trapToastUntil)
+                GUI.Box(new Rect(960 - 240, 340, 480, 56), "이 근처에 함정이 있습니다!", _toastStyle);
+        }
+
+        // 카트라이더 아이템 슬롯 스타일: 좌상단에 "지금 설치할 것" 큰 슬롯(노랑) +
+        // 이어질 순서대로 작은 슬롯(크림). 텍스트 설명 없음 - 상세 안내는 F1 도움말.
+        private void DrawSlotBar()
+        {
+            if (_queue.Count == 0) return;
+            const float bigS = 96f, smallS = 60f, gap = 8f;
+            const float x0 = 16f, y0 = 16f;
+            int sel = Mathf.Clamp(_queueIndex, 0, _queue.Count - 1);
+
+            DrawSlot(new Rect(x0, y0, bigS, bigS), _queue[sel], true);
+
+            float x = x0 + bigS + gap;
+            float y = y0 + (bigS - smallS); // 작은 슬롯은 바닥선 정렬
+            for (int k = 1; k < _queue.Count; k++)
             {
-                if (_toastStyle == null)
-                    _toastStyle = new GUIStyle(GUI.skin.box)
-                    {
-                        fontSize = 28, fontStyle = FontStyle.Bold,
-                        alignment = TextAnchor.MiddleCenter,
-                        normal = { textColor = new Color(1f, 0.45f, 0.35f) }
-                    };
-                GUI.Box(new Rect(960 - 240, 340, 480, 52), "이 근처에 함정이 있습니다!", _toastStyle);
+                var t = _queue[(sel + k) % _queue.Count];
+                DrawSlot(new Rect(x, y, smallS, smallS), t, false);
+                x += smallS + gap;
             }
+
+            // 최소 힌트 한 줄(상세는 F1 도움말).
+            GUI.Label(new Rect(x0, y0 + bigS + 6f, 400f, 24f), "<b>[Alt]</b> 전환   <b>[F1]</b> 도움말", _hint);
+        }
+
+        private void DrawSlot(Rect r, StructureType t, bool selected)
+        {
+            GUI.Box(r, GUIContent.none, selected ? _slotSel : _slotIdle);
+
+            var tex = ThumbFor(t);
+            var inner = new Rect(r.x + 7f, r.y + 7f, r.width - 14f, r.height - 14f);
+            Color oc = GUI.color;
+            GUI.color = selected ? Color.white : new Color(1f, 1f, 1f, 0.8f);
+            if (tex != null) GUI.DrawTexture(inner, tex, ScaleMode.ScaleToFit);
+            GUI.color = oc;
+
+            if (t == StructureType.Invisible)
+                GUI.Label(new Rect(r.x, r.yMax - 24f, r.width, 22f), "투명", _badge);
         }
 
         // ============================ 썸네일(실물 미리보기) ============================
@@ -491,7 +495,7 @@ namespace RouletteParty.Match
                 cam.nearClipPlane = 0.05f;
                 cam.farClipPlane = 200f;
                 cam.clearFlags = CameraClearFlags.SolidColor;
-                cam.backgroundColor = new Color(0.13f, 0.13f, 0.18f, 1f);
+                cam.backgroundColor = new Color(0.80f, 0.86f, 0.92f, 1f); // 슬롯(크림/노랑) 위에 어울리는 밝은 하늘 톤
                 cam.depth = -50f; // 메인 카메라를 방해하지 않게
                 Vector3 dir = new Vector3(1f, 0.7f, -1f).normalized;
                 cam.transform.position = b.center + dir * (b.extents.magnitude + 3f);
@@ -518,18 +522,5 @@ namespace RouletteParty.Match
 
         private Texture ThumbFor(StructureType t) =>
             _thumbs.TryGetValue(t, out var rt) && rt != null ? rt : null;
-
-        private static string TypeKorean(StructureType t)
-        {
-            switch (t)
-            {
-                case StructureType.Wall:      return "벽 (보이는)";
-                case StructureType.Cylinder:  return "원기둥 (보이는)";
-                case StructureType.Invisible: return "투명 (안 보이는)";
-                case StructureType.Tree:      return "나무 (보이는)";
-                case StructureType.Rock:      return "바위 (보이는)";
-                default:                      return "-";
-            }
-        }
     }
 }

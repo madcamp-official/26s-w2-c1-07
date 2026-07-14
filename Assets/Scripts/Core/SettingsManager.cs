@@ -46,8 +46,10 @@ namespace RouletteParty.Core
         public bool  Fullscreen       { get; private set; } = true;
 
         private bool _open;
+        private int _tab; // 0 = 설정, 1 = 설명(조작/규칙 도움말)
         private Rect _panelRect;
-        private GUIStyle _title;
+        private GUIStyle _title, _panel, _label, _head, _small, _tabOn, _tabOff;
+        private Vector2 _helpScroll;
 
         private void Awake()
         {
@@ -117,24 +119,90 @@ namespace RouletteParty.Core
             Store();
         }
 
-        // ============================ 설정 패널 (F1) ============================
+        // ============================ 설정/설명 패널 (F1, 탭 구조) ============================
+        private void EnsureStyles()
+        {
+            if (_title != null) return;
+            _title = new GUIStyle(GUI.skin.label)
+            { fontStyle = FontStyle.Bold, fontSize = 30, alignment = TextAnchor.MiddleCenter };
+            _title.normal.textColor = UiKit.Ink;
+
+            _panel = new GUIStyle(GUI.skin.box)
+            {
+                border = new RectOffset(UiKit.ImguiBorder, UiKit.ImguiBorder, UiKit.ImguiBorder, UiKit.ImguiBorder),
+                padding = new RectOffset(26, 26, 18, 18),
+            };
+            _panel.normal.background = UiKit.BorderedTex(UiKit.Cream, UiKit.Ink);
+
+            _label = new GUIStyle(GUI.skin.label) { fontSize = 20, richText = true };
+            _label.normal.textColor = UiKit.Ink;
+            _head = new GUIStyle(GUI.skin.label) { fontSize = 23, fontStyle = FontStyle.Bold };
+            _head.normal.textColor = UiKit.Ink;
+            _small = new GUIStyle(GUI.skin.label) { fontSize = 18, richText = true, wordWrap = true };
+            _small.normal.textColor = UiKit.InkSoft;
+
+            _tabOn = MakeTab(UiKit.Teal);
+            _tabOff = MakeTab(UiKit.Grey);
+        }
+
+        private static GUIStyle MakeTab(Color fill)
+        {
+            var st = new GUIStyle(GUI.skin.button)
+            {
+                fontSize = 22, fontStyle = FontStyle.Bold,
+                border = new RectOffset(UiKit.ImguiBorder, UiKit.ImguiBorder, UiKit.ImguiBorder, UiKit.ImguiBorder),
+            };
+            Texture2D n, h, a;
+            UiKit.ButtonTex(fill, out n, out h, out a);
+            st.normal.background = n; st.hover.background = h; st.active.background = a; st.focused.background = n;
+            st.normal.textColor = Color.white; st.hover.textColor = Color.white;
+            st.active.textColor = Color.white; st.focused.textColor = Color.white;
+            return st;
+        }
+
         private void OnGUI()
         {
             if (!_open) return;
-            if (_title == null)
-                _title = new GUIStyle(GUI.skin.label) { fontStyle = FontStyle.Bold, fontSize = 16 };
+            EnsureStyles();
 
             ImguiScale.Apply(); // 이하 좌표는 1080p 기준 가상 픽셀
-            const float W = 360f, H = 330f;
+            const float W = 560f, H = 620f;
             _panelRect = new Rect((ImguiScale.VirtualWidth - W) * 0.5f, (ImguiScale.VirtualHeight - H) * 0.5f, W, H);
 
-            GUILayout.BeginArea(_panelRect, GUI.skin.window);
-            GUILayout.Label("설정  (F1 닫기)", _title);
-            GUILayout.Space(8);
+            GUILayout.BeginArea(_panelRect, _panel);
+            GUILayout.Label(_tab == 0 ? "설정" : "설명", _title);
+            GUILayout.Space(6);
 
+            // ---- 탭 ----
+            GUILayout.BeginHorizontal();
+            if (GUILayout.Button("설정", _tab == 0 ? _tabOn : _tabOff, GUILayout.Height(44))) _tab = 0;
+            GUILayout.Space(8);
+            if (GUILayout.Button("설명", _tab == 1 ? _tabOn : _tabOff, GUILayout.Height(44))) _tab = 1;
+            GUILayout.EndHorizontal();
+            GUILayout.Space(12);
+
+            if (_tab == 0) DrawSettingsTab();
+            else DrawHelpTab();
+
+            GUILayout.FlexibleSpace();
+            GUILayout.BeginHorizontal();
+            if (_tab == 0 && GUILayout.Button("기본값 복원", _tabOff, GUILayout.Height(44))) ResetToDefaults();
+            GUILayout.FlexibleSpace();
+            if (GUILayout.Button("닫기 (F1)", _tabOff, GUILayout.Height(44), GUILayout.Width(150)))
+            {
+                _open = false;
+                Store();
+                PlayerPrefs.Save();
+            }
+            GUILayout.EndHorizontal();
+            GUILayout.EndArea();
+        }
+
+        private void DrawSettingsTab()
+        {
             MouseSensitivity = Slider("마우스 감도", MouseSensitivity, 0.02f, 0.5f, "0.00");
 
-            bool invert = GUILayout.Toggle(InvertY, " 마우스 Y축 반전");
+            bool invert = GUILayout.Toggle(InvertY, " 마우스 Y축 반전", _label);
             if (invert != InvertY) { InvertY = invert; Store(); }
 
             GUILayout.Space(8);
@@ -147,34 +215,60 @@ namespace RouletteParty.Core
 
             GUILayout.Space(8);
 
-            bool fs = GUILayout.Toggle(Fullscreen, " 전체 화면(테두리 없는 창)");
+            bool fs = GUILayout.Toggle(Fullscreen, " 전체 화면(테두리 없는 창)", _label);
             if (fs != Fullscreen)
             {
                 Fullscreen = fs;
                 ApplyWindowMode();
                 Store();
             }
+        }
 
-            GUILayout.FlexibleSpace();
-            GUILayout.BeginHorizontal();
-            if (GUILayout.Button("기본값 복원")) ResetToDefaults();
-            if (GUILayout.Button("닫기"))
-            {
-                _open = false;
-                Store();
-                PlayerPrefs.Save();
-            }
-            GUILayout.EndHorizontal();
-            GUILayout.EndArea();
+        // 조작/규칙 도움말. 구조물 설치의 상세 안내는 PREP 화면에서 전부 여기로 옮겨 왔다
+        // (PREP 은 카트라이더식 슬롯 바만 표시 - PrepClientUI).
+        private void DrawHelpTab()
+        {
+            _helpScroll = GUILayout.BeginScrollView(_helpScroll);
+
+            GUILayout.Label("기본 조작", _head);
+            GUILayout.Label("<b>WASD</b> 이동 · 마우스 시선 · <b>Space</b> 점프(누른 시간만큼 높이 조절) · <b>Esc</b> 커서 잠금 해제", _small);
+            GUILayout.Space(10);
+
+            GUILayout.Label("준비 페이즈 - 구조물 설치", _head);
+            GUILayout.Label(
+                "자유 비행: <b>WASD</b> 수평 이동, <b>Space</b> 상승 / <b>Shift</b> 하강\n" +
+                "<b>좌클릭</b> 설치 (프리뷰 초록 = 설치 가능, 빨강 = 불가)\n" +
+                "<b>[Alt]</b> 다음 구조물로 전환 · <b>[1]</b> 보이는 것 / <b>[2]</b> 투명 선택\n" +
+                "<b>[R]</b> Y축 · <b>[T]</b> X축 · <b>[G]</b> Z축 90도 회전\n" +
+                "<b>[Q]</b> 설치 모드 전환: 표면(조준점) / 공중(휠로 거리 조절)\n" +
+                "설치된 구조물을 조준하면 그 위에 쌓입니다. 설치물은 3라운드 내내 누적됩니다.", _small);
+            GUILayout.Space(10);
+
+            GUILayout.Label("투명 구조물(함정)", _head);
+            GUILayout.Label(
+                "상대에게 보이지 않고, 부딪히면 잠깐 모습이 드러납니다.\n" +
+                "상대가 내 함정에 걸려 떨어지면 설치자가 점수를 얻습니다(셀프 제외).", _small);
+            GUILayout.Space(10);
+
+            GUILayout.Label("점수", _head);
+            GUILayout.Label(
+                "진행도(최고 높이 + 종료 높이) · 정상 도달 시간 · 청크 선착순 보너스\n" +
+                "순위 점수(참가자 수 비례) · 안정성 보너스(무탈락) · 반복 탈락 감점\n" +
+                "라운드 종료 시점의 위치가 중요합니다. 마지막까지 버티세요!", _small);
+
+            GUILayout.EndScrollView();
         }
 
         // 라벨 + 슬라이더 + 현재 값 한 줄. 값이 바뀌면 즉시 Store(디스크 Save 는 닫을 때).
         private float Slider(string label, float value, float min, float max, string fmt)
         {
             GUILayout.BeginHorizontal();
-            GUILayout.Label(label, GUILayout.Width(110));
+            GUILayout.Label(label, _label, GUILayout.Width(150));
+            GUILayout.BeginVertical();
+            GUILayout.Space(12); // 슬라이더를 라벨 세로 중앙에 맞춤
             float v = GUILayout.HorizontalSlider(value, min, max, GUILayout.ExpandWidth(true));
-            GUILayout.Label(fmt == "P0" ? v.ToString("P0") : v.ToString(fmt), GUILayout.Width(46));
+            GUILayout.EndVertical();
+            GUILayout.Label(fmt == "P0" ? v.ToString("P0") : v.ToString(fmt), _label, GUILayout.Width(60));
             GUILayout.EndHorizontal();
             if (!Mathf.Approximately(v, value)) Store();
             return v;
