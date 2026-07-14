@@ -243,14 +243,14 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::RouletteParty.Audio.AudioManager
   _jump: {fileID: 8300000, guid: 1d24b109842496645a4c77fb4ebf5997, type: 3}
-  _land: {fileID: 8300000, guid: 4e54c4449bad38a4e94289a27ae1e2ae, type: 3}
-  _place: {fileID: 8300000, guid: e79085a921dc3f941bd6321e4e1090fe, type: 3}
+  _land: {fileID: 0}
+  _place: {fileID: 8300000, guid: d1a45eaf40d366e45ad0718ddb66d649, type: 3}
   _reveal: {fileID: 8300000, guid: a03c02249ff788f478742c1bfd0476d0, type: 3}
   _death: {fileID: 8300000, guid: 35cd3e0ba27599740b9a37d72f0fa8d4, type: 3}
   _playStart: {fileID: 8300000, guid: 16c35b8a205952445bd9ea9a91d181ae, type: 3}
   _roundEnd: {fileID: 8300000, guid: 3d1fc5c31a2f73e4ea22dc958f31fac5, type: 3}
   _matchResult: {fileID: 8300000, guid: 1f6ad1b8f09d92d4db239c5d9b005cf0, type: 3}
-  _uiClick: {fileID: 8300000, guid: db935bbb1c5cc4048a83ffe107382097, type: 3}
+  _uiClick: {fileID: 8300000, guid: 5d1df76585a6bda41b0e9059fe8109d6, type: 3}
   _bgmLobby: {fileID: 0}
   _bgmPlay: {fileID: 0}
   _bgmFadeSpeed: 1.5
