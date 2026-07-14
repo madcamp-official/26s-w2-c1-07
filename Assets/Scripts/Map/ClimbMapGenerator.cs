@@ -120,9 +120,11 @@ public class ClimbMapGenerator : MonoBehaviour
     [Tooltip("레인당 청크 개수(고정). 맵 높이는 뽑힌 청크 구성에서 자연히 결정된다(상승 예산 없음).")]
     [SerializeField] private int chunksPerLane = 5;
 
-    [Header("청크 연결 — 상상 속의 부채꼴")]
-    [Tooltip("부채꼴 레인 간 각도(도). 레인들이 시작 청크에서 이 각도 간격의 살(방사선)로 진행한다.")]
-    [SerializeField] private float fanAnglePerLane = 18f;
+    [Header("청크 연결 — 공유 굽이(전 레인 동일 방향 경로, 폭 유지)")]
+    [Tooltip("청크 경계에서 진행 방향 회전(도, ±). 전 레인이 같은 굽이를 그려 레인 간 폭이 유지된다.")]
+    [SerializeField] private float chunkTurnMax = 20f;
+    [Tooltip("진행 방향 누적 한계(도, ±). 레인이 옆·뒤로 말리는 것 방지.")]
+    [SerializeField] private float headingClamp = 45f;
     [Tooltip("경계 접속 디딤돌 한 걸음 최대 길이(m). 청크가 밴드보다 짧게 끝나면 이 걸음으로 경계까지 잇는다.")]
     [SerializeField] private float linkStepMax = 1.9f;
 
@@ -327,27 +329,54 @@ public class ClimbMapGenerator : MonoBehaviour
 
         Bounds footprint = island;
         float minLaneTop = float.PositiveInfinity;
-        float maxLaneTop = float.NegativeInfinity;
         int made = 0;
         _finishPlates.Clear();
-        if (useSectionLanes) PlanChunks(seed); // 전 레인 공유: 청크 배열/步 수/갭/경계 반경
 
-        for (int lane = 0; lane < laneCount; lane++)
+        if (useSectionLanes)
         {
-            float laneTop = useSectionLanes
-                ? BuildLaneSections(lane, seed, ground, ref footprint, ref made)
-                : BuildLane(lane, seed, ground, ref footprint, ref made);
-            minLaneTop = Mathf.Min(minLaneTop, laneTop);
-            maxLaneTop = Mathf.Max(maxLaneTop, laneTop);
-        }
+            PlanChunks(seed); // 전 레인 공유: 청크 배열/步 수/갭/굽이 방향/경계점
 
-        // 정상 높이(점수 정규화 기준):
-        //  - 섹션 모드: 레인 top 이 제각각(다양성 우선) -> 가장 높은 도착 청크. 도달 판정은
-        //    높이가 아니라 도착 청크 위(IsAtFinish)이므로 낮은 레인도 완주 시 만점.
-        //  - 레거시: 가장 낮은 레인 정상 - 판정 여유(기존 계약 유지).
-        _topY = useSectionLanes
-            ? (float.IsNegativeInfinity(maxLaneTop) ? EstimatedTop() : maxLaneTop)
-            : (float.IsPositiveInfinity(minLaneTop) ? EstimatedTop() : minLaneTop) - 0.05f;
+            // 1) 레인별 청크 체인(도착 청크 제외).
+            var laneEnds = new Vector3[laneCount];
+            var laneRoots = new Transform[laneCount];
+            var laneOrds = new int[laneCount];
+            float maxEndY = 0f;
+            for (int lane = 0; lane < laneCount; lane++)
+            {
+                laneEnds[lane] = BuildLaneSections(lane, seed, ground, ref footprint, ref made,
+                                                   out laneRoots[lane], out laneOrds[lane]);
+                maxEndY = Mathf.Max(maxEndY, laneEnds[lane].y);
+            }
+
+            // 2) 도착 청크는 하나(시작 청크처럼): 스파인 끝, 가장 높은 레인 끝 기준 높이.
+            float lastHeading = _planHeading[_planHeading.Length - 1];
+            float plateTop = maxEndY + 0.45f;
+            BuildSharedFinish(plateTop, lastHeading, ground, ref footprint, ref made);
+
+            // 3) 레인별 합류: 디딤돌로 도착 청크 입구까지(수평 + 높이 동시 접속).
+            Vector3 F = Fwd(lastHeading);
+            Vector3 Lt = Lat(lastHeading);
+            Bounds plate = _finishPlates[0];
+            for (int lane = 0; lane < laneCount; lane++)
+            {
+                float off = (lane - (laneCount - 1) * 0.5f) * laneSpacing;
+                float offClamped = Mathf.Clamp(off, -(finishChunkSize.y * 0.5f - 1.5f), finishChunkSize.y * 0.5f - 1.5f);
+                var target = new Vector3(plate.center.x, plateTop, plate.center.z)
+                             - F * (finishChunkSize.x * 0.5f - 0.8f) + Lt * offClamped;
+                var rng = new System.Random(unchecked(seed * 486187739 + 7919 + lane)); // 합류 전용 파생(레인 rng 와 분리)
+                Vector3 cur = laneEnds[lane];
+                int ord = laneOrds[lane];
+                LinkTo(rng, laneRoots[lane], ground, lane, target, ref cur, ref ord, ref footprint, ref made, plateTop);
+            }
+            _topY = plateTop;
+        }
+        else
+        {
+            for (int lane = 0; lane < laneCount; lane++)
+                minLaneTop = Mathf.Min(minLaneTop, BuildLane(lane, seed, ground, ref footprint, ref made));
+            // 레거시: 가장 낮은 레인 정상 - 판정 여유(기존 계약 유지).
+            _topY = (float.IsPositiveInfinity(minLaneTop) ? EstimatedTop() : minLaneTop) - 0.05f;
+        }
 
         // footprint 파생 범위: 설치 허용(좁게) / 이동·경계벽(넓게).
         _placementBounds = WithPad(footprint, placementPadding, -0.5f, _topY + placementHeadroom);
@@ -485,7 +514,8 @@ public class ClimbMapGenerator : MonoBehaviour
         public float Length; // 이 청크에 할당된 밴드 길이(경계 반경 계산용)
     }
     ChunkPlan[] _plan = System.Array.Empty<ChunkPlan>();
-    float[] _boundR = System.Array.Empty<float>(); // 레인 시작점 기준 청크 경계 반경(전 레인 공유)
+    float[] _planHeading = System.Array.Empty<float>(); // 청크별 공유 진행 방향(도)
+    Vector3[] _spine = System.Array.Empty<Vector3>();   // 중앙 경계점 S_0..S_n (xz, 전 레인 공유)
 
     void PlanChunks(int seed)
     {
@@ -519,9 +549,22 @@ public class ClimbMapGenerator : MonoBehaviour
             }
             _plan[i] = p;
         }
-        _boundR = new float[n + 1];
-        _boundR[0] = startGap + 4.5f; // 진입 발판 구간
-        for (int i = 0; i < n; i++) _boundR[i + 1] = _boundR[i] + _plan[i].Length + 2.2f; // 휴게 접속 여유
+
+        // 공유 굽이: 청크마다 진행 방향을 ±chunkTurnMax 회전(누적 ±headingClamp).
+        // 전 레인이 같은 방향 경로를 쓰므로 레인 간 폭(laneSpacing)이 그대로 유지된다.
+        _planHeading = new float[n];
+        float h = 0f;
+        for (int i = 0; i < n; i++)
+        {
+            h = Mathf.Clamp(h + Jit(mrng, chunkTurnMax), -headingClamp, headingClamp);
+            _planHeading[i] = h;
+        }
+
+        // 중앙 스파인 경계점: S_0 = 진입 구간 끝, S_{k+1} = S_k + 방향_k x (밴드 길이 + 접속 여유).
+        _spine = new Vector3[n + 1];
+        _spine[0] = new Vector3(islandWidth * 0.5f, 0f, 0f) + Fwd(_planHeading[0]) * (startGap + 4.5f);
+        for (int i = 0; i < n; i++)
+            _spine[i + 1] = _spine[i] + Fwd(_planHeading[i]) * (_plan[i].Length + 2.2f);
     }
 
     static float Range(System.Random r, Vector2 v) => Mathf.Lerp(v.x, v.y, (float)r.NextDouble());
@@ -645,7 +688,9 @@ public class ClimbMapGenerator : MonoBehaviour
         return seg;
     }
 
-    float BuildLaneSections(int laneIndex, int seed, int ground, ref Bounds footprint, ref int made)
+    // 레인 체인 생성(도착 청크 제외). 반환 = 레인 끝 커서(도착 합류는 BuildStructures 가 처리).
+    Vector3 BuildLaneSections(int laneIndex, int seed, int ground, ref Bounds footprint, ref int made,
+                              out Transform laneRootOut, out int ordinalOut)
     {
         var rng = new System.Random(unchecked(seed * 486187739 + laneIndex)); // 기존 파생식 유지
         float laneZ = (laneIndex - (laneCount - 1) * 0.5f) * laneSpacing;
@@ -654,80 +699,89 @@ public class ClimbMapGenerator : MonoBehaviour
         laneRoot.SetParent(_structureRoot.transform, false);
 
         int ordinal = 0;
-        // 부채꼴: 레인 = 시작점(섬 가장자리, 레인별 z)에서 고정 각도로 뻗는 살(방사선).
-        // 청크 경계 반경(_boundR)은 전 레인 공유 -> 레인별 청크 간격이 일치한다.
-        float heading = (laneIndex - (laneCount - 1) * 0.5f) * fanAnglePerLane;
-        var laneOrigin = new Vector3(islandWidth * 0.5f, 0f, laneZ);
-        Vector3 F = Fwd(heading);
-        Vector3 cursor = laneOrigin;
+        // 공유 굽이: 모든 레인이 같은 방향 경로(_planHeading)와 스파인 경계점(_spine)을 쓰고,
+        // 레인은 스파인에서 측면으로 laneOff 만큼 평행 오프셋 -> 레인 간 폭이 청크마다 유지된다.
+        float laneOff = laneZ; // (laneIndex - (n-1)/2) x laneSpacing
+        Vector3 cursor = new Vector3(islandWidth * 0.5f, 0f, laneZ);
 
         // 진입 발판(중 티어): 시작 청크(섬) 가장자리에서 startGap(항상 점프 가능).
         var first = RestPiece(rng, mediumPlatforms, laneRoot, "Entry", out bool firstStatic);
-        cursor = Chain(first, laneOrigin + F * startGap + Vector3.up * 0.45f,
+        cursor = Chain(first, cursor + Fwd(_planHeading[0]) * startGap + Vector3.up * 0.45f,
                        ground, laneIndex, ref ordinal, ref footprint, ref made, firstStatic);
 
         for (int chunkIdx = 0; chunkIdx < _plan.Length; chunkIdx++)
         {
             var plan = _plan[chunkIdx];
-            float stopR = _boundR[chunkIdx + 1] - 2.2f; // 청크가 경계를 넘지 않게 하는 정지선
+            float heading = _planHeading[chunkIdx];
+            var bandOrigin = _spine[chunkIdx] + Lat(heading) * laneOff; // 이 청크 밴드의 레인측 시작점
+            float stopR = plan.Length - 2.2f;                           // 밴드 내 정지선(경계 침범 방지)
 
             switch ((SectionKind)plan.Kind)
             {
-                case SectionKind.Stairs: SectionStairs(rng, laneRoot, ground, laneIndex, heading, laneOrigin, stopR, plan, ref cursor, ref ordinal, ref footprint, ref made); break;
-                case SectionKind.Zigzag: SectionZigzag(rng, laneRoot, ground, laneIndex, heading, laneOrigin, stopR, plan, ref cursor, ref ordinal, ref footprint, ref made); break;
-                case SectionKind.Shaft:  SectionShaft(rng, laneRoot, ground, laneIndex, heading, laneOrigin, stopR, plan, ref cursor, ref ordinal, ref footprint, ref made); break;
-                case SectionKind.Room:   SectionRoom(rng, laneRoot, ground, laneIndex, heading, laneOrigin, stopR, plan, ref cursor, ref ordinal, ref footprint, ref made); break;
+                case SectionKind.Stairs: SectionStairs(rng, laneRoot, ground, laneIndex, heading, bandOrigin, stopR, plan, ref cursor, ref ordinal, ref footprint, ref made); break;
+                case SectionKind.Zigzag: SectionZigzag(rng, laneRoot, ground, laneIndex, heading, bandOrigin, stopR, plan, ref cursor, ref ordinal, ref footprint, ref made); break;
+                case SectionKind.Shaft:  SectionShaft(rng, laneRoot, ground, laneIndex, heading, bandOrigin, stopR, plan, ref cursor, ref ordinal, ref footprint, ref made); break;
+                case SectionKind.Room:   SectionRoom(rng, laneRoot, ground, laneIndex, heading, bandOrigin, stopR, plan, ref cursor, ref ordinal, ref footprint, ref made); break;
                 case SectionKind.Bridge: SectionBridge(rng, laneRoot, ground, laneIndex, heading, plan, ref cursor, ref ordinal, ref footprint, ref made); break;
-                case SectionKind.Spin:   SectionSpin(rng, laneRoot, ground, laneIndex, heading, laneOrigin, stopR, plan, ref cursor, ref ordinal, ref footprint, ref made); break;
+                case SectionKind.Spin:   SectionSpin(rng, laneRoot, ground, laneIndex, heading, bandOrigin, stopR, plan, ref cursor, ref ordinal, ref footprint, ref made); break;
             }
 
-            // 경계 접속: 짧게 끝난 몫을 디딤돌로 잇고, 휴게 발판을 정확히 공유 경계 반경에 놓는다.
-            var boundXZ = laneOrigin + F * _boundR[chunkIdx + 1];
-            LinkTo(rng, laneRoot, ground, laneIndex, boundXZ, ref cursor, ref ordinal, ref footprint, ref made);
+            // 경계 접속: 짧게 끝난 몫을 디딤돌로 잇고, 휴게 발판을 공유 경계점(레인 오프셋 적용)에 놓는다.
+            // 경계점의 측면 기준은 "다음 청크의 방향" — 다음 밴드 시작점과 정확히 일치해 자연스럽게 꺾인다.
+            float nextHeading = chunkIdx + 1 < _plan.Length ? _planHeading[chunkIdx + 1] : heading;
+            var bound = _spine[chunkIdx + 1] + Lat(nextHeading) * laneOff;
             if (chunkIdx < _plan.Length - 1)
             {
+                LinkTo(rng, laneRoot, ground, laneIndex, bound, ref cursor, ref ordinal, ref footprint, ref made);
                 var rest = RestPiece(rng, mediumPlatforms, laneRoot, "Rest", out bool restStatic);
-                cursor = Chain(rest, new Vector3(boundXZ.x, cursor.y + 0.4f, boundXZ.z),
+                cursor = Chain(rest, new Vector3(bound.x, cursor.y + 0.4f, bound.z),
                                ground, laneIndex, ref ordinal, ref footprint, ref made, restStatic);
             }
         }
 
-        // 도착 청크: 시작 청크 같은 큰 발판. 위에 올라서면 도달(IsAtFinish, MatchManager 판정).
-        // 레인 top 은 청크가 쌓인 높이 그대로(레인마다 달라도 된다 — 다양성 우선).
-        return BuildFinishChunk(rng, laneRoot, ground, laneIndex, heading, ref cursor, ref ordinal, ref footprint, ref made);
+        // 도착 청크는 전 레인 공유(BuildStructures 가 스파인 끝에 1개 생성 후 레인별 합류를 잇는다).
+        laneRootOut = laneRoot;
+        ordinalOut = ordinal;
+        return cursor;
     }
 
-    // 경계 접속 디딤돌(소 티어): 목표 수평 지점까지 2.2m 이내가 될 때까지 걸음을 놓는다.
+    // 경계 접속 디딤돌(소 티어): 목표 수평 지점까지 2.2m 이내(+ 수직 목표가 있으면 상승 0.85 이내)가
+    // 될 때까지 걸음을 놓는다. targetY 지정 시 걸음 상승을 목표 높이에 맞춰 배분한다(도착 합류용).
     void LinkTo(System.Random rng, Transform root, int ground, int laneIndex, Vector3 targetXZ,
-                ref Vector3 cursor, ref int ordinal, ref Bounds footprint, ref int made)
+                ref Vector3 cursor, ref int ordinal, ref Bounds footprint, ref int made,
+                float targetY = float.NaN)
     {
-        for (int guard = 0; guard < 8; guard++)
+        bool vertical = !float.IsNaN(targetY);
+        for (int guard = 0; guard < 12; guard++)
         {
             Vector3 to = targetXZ - cursor; to.y = 0f;
             float d = to.magnitude;
-            if (d <= 2.2f) break;
+            float riseLeft = vertical ? targetY - cursor.y : 0f;
+            if (d <= 2.2f && riseLeft <= 0.85f) break;
+
+            float dy = vertical ? Mathf.Clamp(riseLeft, -1.2f, 0.7f) : 0.3f;
             var stone = PickTier(rng, smallPlatforms, root, new Vector3(1.6f, 0.4f, 1.6f), "Link");
-            cursor = Chain(stone, cursor + to.normalized * Mathf.Min(linkStepMax, d) + Vector3.up * 0.3f,
+            cursor = Chain(stone, cursor + to.normalized * Mathf.Min(linkStepMax, Mathf.Max(0.6f, d)) + Vector3.up * dy,
                            ground, laneIndex, ref ordinal, ref footprint, ref made);
         }
     }
 
-    // 도착 청크 생성: 진행 방향으로 정렬된 큰 발판 + (선택) 반투명 도달 볼륨. 반환 = 윗면 높이.
-    float BuildFinishChunk(System.Random rng, Transform root, int ground, int laneIndex, float heading,
-                           ref Vector3 cursor, ref int ordinal, ref Bounds footprint, ref int made)
+    // 도착 청크 생성(전 레인 공유 1개): 스파인 끝에 진행 방향 정렬 큰 발판 + (선택) 반투명 도달 볼륨.
+    void BuildSharedFinish(float plateTop, float heading, int ground, ref Bounds footprint, ref int made)
     {
         Vector3 F = Fwd(heading);
-        float top = cursor.y + 0.45f;
-        Vector3 centerTop = cursor + F * (2.0f + finishChunkSize.x * 0.5f) + Vector3.up * 0.45f;
+        Vector3 centerXZ = _spine[_spine.Length - 1] + F * (2.5f + finishChunkSize.x * 0.5f);
+        var centerTop = new Vector3(centerXZ.x, plateTop, centerXZ.z);
 
         var plate = GameObject.CreatePrimitive(PrimitiveType.Cube);
         plate.name = "FinishChunk";
-        plate.transform.SetParent(root, false);
+        plate.transform.SetParent(_structureRoot.transform, false);
         plate.transform.localScale = new Vector3(finishChunkSize.x, 2f, finishChunkSize.y);
         plate.transform.SetPositionAndRotation(centerTop - Vector3.up * 1f, Quaternion.Euler(0f, -heading, 0f));
         if (islandMaterial != null) plate.GetComponent<MeshRenderer>().sharedMaterial = islandMaterial;
         var seg = plate.AddComponent<PlatformSegment>();
-        Register(seg, ground, laneIndex, ref ordinal, ref footprint, ref made, true);
+        int ordinal = 1; // 영역 관례: LaneIndex -1(공용) + Ordinal 1 = 도착 청크(0 = 시작 청크)
+        Register(seg, ground, -1, ref ordinal, ref footprint, ref made, true);
 
         // 도달 판정 영역 = 발판의 월드 AABB(회전 포함). 콜라이더 bounds 는 같은 프레임의
         // 트랜스폼 이동을 물리 동기화 전까지 반영하지 않으므로(스테일) 렌더러 bounds 를 쓴다.
@@ -746,7 +800,6 @@ public class ClimbMapGenerator : MonoBehaviour
             mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
             mr.receiveShadows = false;
         }
-        return top;
     }
 
     int PickSection(System.Random rng, int idx, int forcedBridgeAt,
@@ -864,7 +917,8 @@ public class ClimbMapGenerator : MonoBehaviour
             for (int t = 0; t < 10; t++)
             {
                 float ang = (heading + Jit(rng, 100f)) * Mathf.Deg2Rad; // 진행 방향 기준 ±100도
-                float dist = Range(rng, roomStepDist);
+                // 첫 단은 진입 홉(상승 0.9)과 겹쳐 빡빡해지므로 거리를 좁힌다(점프 여유 확보).
+                float dist = k == 0 ? Mathf.Lerp(2.1f, 2.7f, (float)rng.NextDouble()) : Range(rng, roomStepDist);
                 var cand = prevXZ + new Vector2(Mathf.Cos(ang), Mathf.Sin(ang)) * dist;
                 if (ForwardOf(new Vector3(cand.x, 0f, cand.y), laneOrigin, Ff) > stopR) continue;
 
