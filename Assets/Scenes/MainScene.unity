@@ -580,6 +580,8 @@ MonoBehaviour:
   _airDistanceMax: 30
   _airDistanceStep: 1
   _trapToastDuration: 2.5
+  _mediumChance: 0.15
+  _largeChance: 0.07
 --- !u!4 &890971250
 Transform:
   m_ObjectHideFlags: 0
@@ -1081,6 +1083,11 @@ MonoBehaviour:
   _invisiblePrefab: {fileID: 463762144606901678, guid: b23093dc222ff5d4c97e675ccd60e863, type: 3}
   _treePrefab: {fileID: 4333472719036419346, guid: 2afcc1c9cedb8e045b386862a30bbf00, type: 3}
   _rockPrefab: {fileID: 1956288290601745456, guid: 00e338fdf40af6b4984a95697604c119, type: 3}
+  _tablePrefab: {fileID: 782385439310225288, guid: 36b321860d3ee0d4c99acc6b83136c96, type: 3}
+  _structureSizeMultipliers:
+  - 1
+  - 1.5
+  - 2
   _scoring:
     heightScoreMax: 700
     heightCurve:

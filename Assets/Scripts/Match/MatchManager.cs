@@ -84,6 +84,14 @@ namespace RouletteParty.Match
         [SerializeField] private GameObject _invisiblePrefab;
         [SerializeField] private GameObject _treePrefab;
         [SerializeField] private GameObject _rockPrefab;
+        [SerializeField] private GameObject _tablePrefab;
+        [Tooltip("구조물 크기 티어 배율(인덱스 0 = 소/기본, 1 = 중, 2 = 대). 배치 큐가 낮은 확률로 중/대를 굴린다.")]
+        [SerializeField] private float[] _structureSizeMultipliers = { 1f, 1.5f, 2f };
+
+        /// <summary>크기 티어 -> 스케일 배율(범위 밖은 기본 1). 서버 스폰과 클라 블루프린트가 공유.</summary>
+        public float SizeMultiplier(int tier) =>
+            (_structureSizeMultipliers != null && tier >= 0 && tier < _structureSizeMultipliers.Length)
+                ? Mathf.Max(0.1f, _structureSizeMultipliers[tier]) : 1f;
 
         [Header("점수")]
         [Tooltip("라운드 점수 설정(공식은 MatchScoring.RoundScore 한 곳에만 존재).")]
@@ -557,11 +565,13 @@ namespace RouletteParty.Match
         /// yawStep = 90도 단위 회전(0~3). Invisible 타입 = 보이지 않는 구조물.
         /// </summary>
         [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Everyone)]
-        public void PlaceStructureServerRpc(Vector3 pos, byte yawStep, byte pitchStep, byte rollStep, byte typeByte, RpcParams rpcParams = default)
+        public void PlaceStructureServerRpc(Vector3 pos, byte yawStep, byte pitchStep, byte rollStep, byte typeByte,
+                                            byte sizeTier, RpcParams rpcParams = default)
         {
             ulong sender = rpcParams.Receive.SenderClientId;
             var type = (StructureType)typeByte;
             bool invisible = type == StructureType.Invisible;
+            if (invisible) sizeTier = 0; // 투명 구조물은 크기 고정(함정 밸런스)
 
             if (_phase.Value != MatchPhase.Prep) return;
 
@@ -579,9 +589,10 @@ namespace RouletteParty.Match
             if (prefab == null) { Debug.LogWarning($"[Match] structure prefab for {type} not assigned."); return; }
 
             // 프리팹 "바닥"이 조준점(pos)에 닿도록 피벗을 들어 올린 최종 위치.
-            // 회전(3축 90도 스텝)을 먼저 적용해야 회전된 렌더 바운즈로 바닥 오프셋이 나온다.
+            // 크기 배율/회전(3축 90도 스텝)을 먼저 적용해야 최종 렌더 바운즈로 바닥 오프셋이 나온다.
             // 클라 블루프린트(PrepClientUI)와 동일한 계산 -> 프리뷰 위치 = 실물 위치.
             GameObject go = Instantiate(prefab);
+            go.transform.localScale *= SizeMultiplier(sizeTier);
             go.transform.rotation = Quaternion.Euler(pitchStep * 90f, yawStep * 90f, rollStep * 90f);
             go.transform.position = pos + Vector3.up * Structure.BottomOffset(go);
 
@@ -625,6 +636,7 @@ namespace RouletteParty.Match
                 case StructureType.Invisible: return _invisiblePrefab;
                 case StructureType.Tree:      return _treePrefab;
                 case StructureType.Rock:      return _rockPrefab;
+                case StructureType.Table:     return _tablePrefab;
                 default:                      return _wallPrefab;
             }
         }
