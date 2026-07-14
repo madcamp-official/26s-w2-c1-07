@@ -39,7 +39,27 @@ namespace RouletteParty.UI
         public const int ImguiBorder = RADIUS + 2;
 
         private static Sprite s_round;                 // 테두리 없는 흰색(틴트용, 레거시)
+        private static Sprite s_white;                 // 1x1 흰색(단색 사각형용)
         private static Texture2D s_imguiPanel;         // 레거시 다크 패널
+
+        /// <summary>1x1 흰색 스프라이트(단색 사각형 - 딤/스와치/조준점). Image.color 로 틴트.</summary>
+        public static Sprite WhiteSprite
+        {
+            get
+            {
+                if (s_white == null)
+                {
+                    var tex = new Texture2D(4, 4, TextureFormat.RGBA32, false)
+                    { hideFlags = HideFlags.HideAndDontSave, wrapMode = TextureWrapMode.Clamp };
+                    var px = new Color[16];
+                    for (int i = 0; i < 16; i++) px[i] = Color.white;
+                    tex.SetPixels(px);
+                    tex.Apply();
+                    s_white = Sprite.Create(tex, new Rect(0, 0, 4, 4), new Vector2(0.5f, 0.5f));
+                }
+                return s_white;
+            }
+        }
         private static readonly Dictionary<long, Texture2D> s_texCache = new Dictionary<long, Texture2D>();
         private static readonly Dictionary<long, Sprite> s_spriteCache = new Dictionary<long, Sprite>();
 

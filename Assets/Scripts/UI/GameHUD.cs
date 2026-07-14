@@ -28,10 +28,11 @@ namespace RouletteParty.UI
         private Canvas _canvas;
         private RectTransform _canvasRT;
 
-        // 상단 배너
-        private Image _bannerPanel;   // 페이즈/라운드/타이머를 담는 라운드 패널
+        // 상단 배너(UCH: 기울어진 페이즈 컬러 배너 + 크림 알약에 라운드/타이머)
+        private Image _bannerPanel;   // 페이즈명 컬러 배너(페이즈별 색)
+        private Image _subPanel;      // 라운드/타이머 크림 알약
         private Text _phaseLabel;
-        private Text _subLabel;       // "라운드 n/3   모드명"
+        private Text _subLabel;       // "라운드 n/3"
         private Text _countdownLabel; // "n초"
 
         // 페이즈 전환 시각(목표 문구 잠깐 표시용)
@@ -52,14 +53,14 @@ namespace RouletteParty.UI
         private GameObject _deadPanelGo; // 탈락 배너 패널(패널째 토글)
 
         private RectTransform _highlightRoot;
-        private Text _hlTitle;
+        private Text _hlBannerText; // 파란 헤더 배너 안 "라운드 n 결과"
         private Text _hlTrophy;
         private Text _hlTopic;
         private Text _hlStats;   // 라운드 통계(최대 낙하·낚시왕·낚임왕·탈락 수)
         private RectTransform _hlRowsParent;
         private readonly List<Row> _hlRows = new List<Row>();
 
-        private RectTransform _resultRoot;   // 전체 화면 최종 순위
+        private RectTransform _resultRoot;   // 최종 결과(딤 + 중앙 카드)
         private Text _resChampion;
         private RectTransform _resRowsParent;
         private readonly List<Row> _resRows = new List<Row>();
@@ -160,44 +161,49 @@ namespace RouletteParty.UI
 
             _canvasRT = _canvas.GetComponent<RectTransform>();
 
-            // --- 상단 배너(라운드 패널 안에 페이즈/라운드/타이머) ---
-            _bannerPanel = MakePanel(_canvasRT, UiKit.PanelBgSoft);
+            // --- 상단 배너(UCH): 기울어진 페이즈 컬러 배너 + 크림 알약(라운드/타이머) ---
+            _bannerPanel = MakeStrip(_canvasRT, UiKit.Teal);
             SetRect(_bannerPanel.rectTransform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0.5f, 1f),
-                    new Vector2(400, 128), new Vector2(0, -14));
+                    new Vector2(340, 64), new Vector2(0, -16));
+            _bannerPanel.rectTransform.localEulerAngles = new Vector3(0f, 0f, 1.5f);
 
-            _phaseLabel = MakeText(_bannerPanel.transform, "", 42, TextAnchor.MiddleCenter, UiKit.TextMain);
+            _phaseLabel = MakeText(_bannerPanel.transform, "", 34, TextAnchor.MiddleCenter, Color.white, false);
             _phaseLabel.fontStyle = FontStyle.Bold;
-            SetRect(_phaseLabel.rectTransform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0.5f, 1f),
-                    new Vector2(380, 56), new Vector2(0, -10));
+            Stretch(_phaseLabel.rectTransform);
 
-            _subLabel = MakeText(_bannerPanel.transform, "", 22, TextAnchor.MiddleCenter, UiKit.TextDim);
-            SetRect(_subLabel.rectTransform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0.5f, 1f),
-                    new Vector2(380, 28), new Vector2(0, -66));
+            _subPanel = MakeCream(_canvasRT);
+            SetRect(_subPanel.rectTransform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0.5f, 1f),
+                    new Vector2(280, 46), new Vector2(0, -88));
 
-            _countdownLabel = MakeText(_bannerPanel.transform, "", 26, TextAnchor.MiddleCenter, UiKit.Accent);
+            _subLabel = MakeText(_subPanel.transform, "", 22, TextAnchor.MiddleLeft, UiKit.InkSoft, false);
+            _subLabel.fontStyle = FontStyle.Bold;
+            SetRect(_subLabel.rectTransform, new Vector2(0f, 0f), new Vector2(0.6f, 1f), new Vector2(0f, 0.5f),
+                    new Vector2(-20, 0), new Vector2(20, 0));
+
+            _countdownLabel = MakeText(_subPanel.transform, "", 24, TextAnchor.MiddleRight, UiKit.Ink, false);
             _countdownLabel.fontStyle = FontStyle.Bold;
-            SetRect(_countdownLabel.rectTransform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0.5f, 1f),
-                    new Vector2(380, 32), new Vector2(0, -92));
+            SetRect(_countdownLabel.rectTransform, new Vector2(0.6f, 0f), new Vector2(1f, 1f), new Vector2(1f, 0.5f),
+                    new Vector2(-20, 0), new Vector2(-20, 0));
 
-            // --- 점수판(우상단) ---
-            // 좌상단은 접속(Host/Client) OnGUI 버튼·디버그 패널이 쓰므로 우상단에 배치해 겹침을 피한다.
-            _scorePanel = MakePanel(_canvasRT, UiKit.PanelBg);
+            // --- 점수판(우상단, 크림 패널) ---
+            _scorePanel = MakeCream(_canvasRT);
             SetRect(_scorePanel.rectTransform, new Vector2(1f, 1f), new Vector2(1f, 1f), new Vector2(1f, 1f),
                     new Vector2(320, 470), new Vector2(-20, -20));
 
-            _scoreTitle = MakeText(_scorePanel.transform, "점수판", 22, TextAnchor.MiddleLeft, UiKit.TextMain);
+            _scoreTitle = MakeText(_scorePanel.transform, "점수판", 22, TextAnchor.MiddleLeft, UiKit.Ink, false);
             _scoreTitle.fontStyle = FontStyle.Bold;
             SetRect(_scoreTitle.rectTransform, new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0.5f, 1f),
-                    new Vector2(-28, 32), new Vector2(0, -8));
-            var scoreDivider = MakeImage(_scorePanel.transform, new Color(1f, 1f, 1f, 0.14f));
+                    new Vector2(-32, 32), new Vector2(0, -9));
+            var scoreDivider = MakeImage(_scorePanel.transform, new Color(0.231f, 0.192f, 0.161f, 0.25f));
             SetRect(scoreDivider.rectTransform, new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0.5f, 1f),
-                    new Vector2(-24, 2), new Vector2(0, -40));
+                    new Vector2(-28, 2), new Vector2(0, -42));
 
-            // --- 탈락(관전) 배너 ---
-            var deadPanel = MakePanel(_canvasRT, UiKit.PanelBg);
+            // --- 탈락(관전) 배너(빨간 스트립) ---
+            var deadPanel = MakeStrip(_canvasRT, UiKit.Red);
             SetRect(deadPanel.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
                     new Vector2(640, 62), new Vector2(0, 140));
-            _deadBanner = MakeText(deadPanel.transform, "", 34, TextAnchor.MiddleCenter, UiKit.Danger);
+            deadPanel.rectTransform.localEulerAngles = new Vector3(0f, 0f, -1f);
+            _deadBanner = MakeText(deadPanel.transform, "", 32, TextAnchor.MiddleCenter, Color.white, false);
             _deadBanner.fontStyle = FontStyle.Bold;
             Stretch(_deadBanner.rectTransform);
             _deadPanelGo = deadPanel.gameObject; // 패널째 켜고 끈다(텍스트만 끄면 패널이 남음)
@@ -207,67 +213,86 @@ namespace RouletteParty.UI
             _playRoot = MakeRect(_canvasRT, "PlayRoot");
             SetRect(_playRoot, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0.5f, 0f),
                     new Vector2(1000, 170), new Vector2(0, 40));
-            _playObjective = MakeText(_playRoot, "", 40, TextAnchor.MiddleCenter, UiKit.TextMain);
+            _playObjective = MakeText(_playRoot, "", 40, TextAnchor.MiddleCenter, Color.white);
             _playObjective.fontStyle = FontStyle.Bold;
             SetRect(_playObjective.rectTransform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0.5f, 1f),
                     new Vector2(1000, 56), new Vector2(0, -4));
-            var playInfoPanel = MakePanel(_playRoot, UiKit.PanelBgSoft);
+            var playInfoPanel = MakeCream(_playRoot);
             SetRect(playInfoPanel.rectTransform, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0.5f, 0f),
                     new Vector2(380, 46), new Vector2(0, 12));
-            _playSurvive = MakeText(playInfoPanel.transform, "", 24, TextAnchor.MiddleCenter, UiKit.TextMain);
+            _playSurvive = MakeText(playInfoPanel.transform, "", 24, TextAnchor.MiddleCenter, UiKit.Ink, false);
+            _playSurvive.fontStyle = FontStyle.Bold;
             Stretch(_playSurvive.rectTransform);
             _playInfoGo = playInfoPanel.gameObject;
 
-            // --- 하이라이트 루트(카드) ---
+            // --- 하이라이트 루트(크림 카드 + 파란 헤더 배너) ---
             _highlightRoot = MakeRect(_canvasRT, "HighlightRoot");
             SetRect(_highlightRoot, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
                     new Vector2(560, 440), new Vector2(0, 0));
-            var hlBg = MakePanel(_highlightRoot, new Color(0.07f, 0.09f, 0.15f, 0.88f));
+            var hlBg = MakeCream(_highlightRoot);
             Stretch(hlBg.rectTransform);
             hlBg.rectTransform.SetAsFirstSibling();
+            var hlBanner = MakeStrip(_highlightRoot, UiKit.Blue);
+            SetRect(hlBanner.rectTransform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0.5f, 1f),
+                    new Vector2(280, 58), new Vector2(0, 26));
+            hlBanner.rectTransform.localEulerAngles = new Vector3(0f, 0f, -1.5f);
+            _hlBannerText = MakeText(hlBanner.transform, "", 28, TextAnchor.MiddleCenter, Color.white, false);
+            _hlBannerText.fontStyle = FontStyle.Bold;
+            Stretch(_hlBannerText.rectTransform);
 
-            _hlTitle = MakeText(_highlightRoot, "", 36, TextAnchor.MiddleCenter, Color.white);
-            SetRect(_hlTitle.rectTransform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0.5f, 1f),
-                    new Vector2(540, 48), new Vector2(0, -16));
-            _hlTrophy = MakeText(_highlightRoot, "", 40, TextAnchor.MiddleCenter, Color.white);
+            _hlTrophy = MakeText(_highlightRoot, "", 40, TextAnchor.MiddleCenter, UiKit.Ink, false);
+            _hlTrophy.fontStyle = FontStyle.Bold;
             SetRect(_hlTrophy.rectTransform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0.5f, 1f),
-                    new Vector2(540, 52), new Vector2(0, -70));
-            _hlTopic = MakeText(_highlightRoot, "", 26, TextAnchor.MiddleCenter, new Color(0.8f, 0.85f, 1f, 1f));
+                    new Vector2(520, 54), new Vector2(0, -48));
+            _hlTopic = MakeText(_highlightRoot, "", 22, TextAnchor.MiddleCenter, UiKit.InkSoft, false);
             SetRect(_hlTopic.rectTransform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0.5f, 1f),
-                    new Vector2(540, 36), new Vector2(0, -126));
+                    new Vector2(520, 32), new Vector2(0, -104));
             _hlRowsParent = MakeRect(_highlightRoot, "HLRows");
             SetRect(_hlRowsParent, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0.5f, 1f),
-                    new Vector2(500, 200), new Vector2(0, -170));
+                    new Vector2(500, 200), new Vector2(0, -148));
 
-            _hlStats = MakeText(_highlightRoot, "", 22, TextAnchor.UpperCenter, new Color(1f, 0.87f, 0.55f, 1f));
+            _hlStats = MakeText(_highlightRoot, "", 21, TextAnchor.UpperCenter, UiKit.InkSoft, false);
             SetRect(_hlStats.rectTransform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0.5f, 1f),
-                    new Vector2(540, 130), new Vector2(0, -290));
+                    new Vector2(520, 140), new Vector2(0, -280));
 
-            // --- 결과 루트(전체 화면) ---
+            // --- 결과 루트(중앙 크림 카드 + 빨간 헤더 배너) ---
+            // 전체 화면 딤은 두지 않는다: 이 프로젝트 URP 구성에서 오버레이 캔버스의 반투명이
+            // 3D 월드 위에서는 블렌딩되지 않는 현상 확인(불투명/패널 위 반투명은 정상).
+            // 카드 자체가 불투명 크림이라 딤 없이도 가독성이 충분하다.
             _resultRoot = MakeRect(_canvasRT, "ResultRoot");
             Stretch(_resultRoot);
-            var resBg = MakeImage(_resultRoot, new Color(0f, 0f, 0f, 0.8f));
-            Stretch(resBg.rectTransform);
-            resBg.rectTransform.SetAsFirstSibling();
 
-            _resChampion = MakeText(_resultRoot, "", 60, TextAnchor.MiddleCenter, Color.white);
+            var resCard = MakeCream(_resultRoot);
+            SetRect(resCard.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
+                    new Vector2(640, 620), new Vector2(0, -10));
+            var resBanner = MakeStrip(resCard.transform, UiKit.Red);
+            SetRect(resBanner.rectTransform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0.5f, 1f),
+                    new Vector2(300, 62), new Vector2(0, 28));
+            resBanner.rectTransform.localEulerAngles = new Vector3(0f, 0f, -1.5f);
+            var resBannerText = MakeText(resBanner.transform, "최종 결과", 30, TextAnchor.MiddleCenter, Color.white, false);
+            resBannerText.fontStyle = FontStyle.Bold;
+            Stretch(resBannerText.rectTransform);
+
+            _resChampion = MakeText(resCard.transform, "", 52, TextAnchor.MiddleCenter, UiKit.Ink, false);
+            _resChampion.fontStyle = FontStyle.Bold;
             SetRect(_resChampion.rectTransform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0.5f, 1f),
-                    new Vector2(1200, 90), new Vector2(0, -120));
-            _resRowsParent = MakeRect(_resultRoot, "ResRows");
-            SetRect(_resRowsParent, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
-                    new Vector2(520, 500), new Vector2(0, -40));
+                    new Vector2(600, 74), new Vector2(0, -52));
+            _resRowsParent = MakeRect(resCard.transform, "ResRows");
+            SetRect(_resRowsParent, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0.5f, 1f),
+                    new Vector2(540, 440), new Vector2(0, -146));
 
             // --- 조준점(화면 중앙 십자) ---
+            // 월드 위 반투명은 이 URP 구성에서 안 그려지므로 전부 불투명(위 결과 카드 주석 참조).
             _crosshair = MakeRect(_canvasRT, "Crosshair");
             SetRect(_crosshair, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
                     new Vector2(24, 24), Vector2.zero);
-            var chH = MakeImage(_crosshair, new Color(1f, 1f, 1f, 0.85f)); // 가로 바
+            var chH = MakeImage(_crosshair, Color.white); // 가로 바
             SetRect(chH.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
                     new Vector2(18, 2), Vector2.zero);
-            var chV = MakeImage(_crosshair, new Color(1f, 1f, 1f, 0.85f)); // 세로 바
+            var chV = MakeImage(_crosshair, Color.white); // 세로 바
             SetRect(chV.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
                     new Vector2(2, 18), Vector2.zero);
-            var chDot = MakeImage(_crosshair, new Color(1f, 0.83f, 0.35f, 0.95f)); // 중앙 도트(액센트)
+            var chDot = MakeImage(_crosshair, UiKit.Yellow); // 중앙 도트(액센트)
             SetRect(chDot.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
                     new Vector2(4, 4), Vector2.zero);
             _crosshair.gameObject.SetActive(false);
@@ -320,16 +345,22 @@ namespace RouletteParty.UI
                 _phaseEnterTime = Time.unscaledTime;
             }
 
-            // --- 상단 배너 ---
-            if (_bannerPanel != null) _bannerPanel.gameObject.SetActive(true);
+            // --- 상단 배너(페이즈별 컬러 스트립) ---
+            if (_bannerPanel != null)
+            {
+                _bannerPanel.gameObject.SetActive(true);
+                Color fill = PhaseColor(m.CurrentPhase);
+                _bannerPanel.sprite = UiKit.BorderedSprite(fill, UiKit.Ink); // 색 조합 캐시라 매 프레임 안전
+                _phaseLabel.color = fill == UiKit.Yellow ? UiKit.Ink : Color.white; // 노란 배너만 잉크 텍스트
+            }
+            if (_subPanel != null) _subPanel.gameObject.SetActive(true);
             _phaseLabel.text = PhaseKorean(m.CurrentPhase);
-            _phaseLabel.color = UiKit.TextMain;
 
             _subLabel.text = m.Round >= 1 ? "라운드 " + m.Round + "/3" : "";
 
             float rem = m.PhaseRemaining; // 이미 클램프됨, 클라이언트 안전
             _countdownLabel.text = Mathf.CeilToInt(Mathf.Max(0f, rem)) + "초";
-            _countdownLabel.color = rem <= 10f ? UiKit.Danger : UiKit.Accent; // 임박 경고
+            _countdownLabel.color = rem <= 10f ? UiKit.Red : UiKit.Ink; // 임박 경고
 
             // --- 좌측 점수판(누적 점수) ---
             BuildStandings(m);
@@ -366,12 +397,20 @@ namespace RouletteParty.UI
                 if (showDead) _deadBanner.text = "탈락! 관전 중 (좌클릭: 대상 전환)";
             }
 
-            // --- 조준점: 로컬 플레이어가 조준 시점일 때 표시(결과·탈락 제외) ---
+            // 카드 화면(하이라이트/대기/결과): 조준점·이름표를 숨긴다(카드 위 겹침 방지).
+            bool cardPhase = m.CurrentPhase == MatchPhase.Highlight ||
+                             m.CurrentPhase == MatchPhase.Intermission ||
+                             m.CurrentPhase == MatchPhase.Result;
+
+            // --- 조준점: 로컬 플레이어가 조준 시점일 때 표시(카드 화면·탈락 제외) ---
             if (_crosshair != null)
-                _crosshair.gameObject.SetActive(localAiming && !localDead && m.CurrentPhase != MatchPhase.Result);
+                _crosshair.gameObject.SetActive(localAiming && !localDead && !cardPhase);
 
             // --- 이름표 ---
-            RenderNameplates(cam);
+            if (cardPhase)
+                for (int i = 0; i < _nameplates.Count; i++) _nameplates[i].go.SetActive(false);
+            else
+                RenderNameplates(cam);
         }
 
         // 네트워크 미준비/스폰 전: 빈 HUD.
@@ -381,7 +420,8 @@ namespace RouletteParty.UI
             _phaseLabel.text = "";
             _subLabel.text = "";
             _countdownLabel.text = "";
-            if (_bannerPanel != null) _bannerPanel.gameObject.SetActive(false); // 빈 알약 패널 잔상 방지
+            if (_bannerPanel != null) _bannerPanel.gameObject.SetActive(false); // 빈 배너 잔상 방지
+            if (_subPanel != null) _subPanel.gameObject.SetActive(false);
             EnsureRows(_scoreRows, _scorePanel.transform, 0);
             HideAllPhaseRoots();
             if (_crosshair != null) _crosshair.gameObject.SetActive(false);
@@ -442,12 +482,15 @@ namespace RouletteParty.UI
 
                 bool isLocal = e.Id == localId;
                 row.nameText.fontStyle = isLocal ? FontStyle.Bold : FontStyle.Normal;
-                row.nameText.color = Color.white;
+                row.nameText.color = UiKit.Ink;
                 row.scoreText.text = e.Score.ToString();
+                row.scoreText.color = UiKit.Ink;
                 row.scoreText.fontStyle = isLocal ? FontStyle.Bold : FontStyle.Normal;
 
-                // 로컬 플레이어 강조 박스
-                row.bg.color = isLocal ? new Color(1f, 0.95f, 0.35f, 0.20f) : new Color(1f, 1f, 1f, 0f);
+                // 로컬 플레이어 강조 박스(노란 하이라이트)
+                row.bg.color = isLocal
+                    ? new Color(UiKit.Yellow.r, UiKit.Yellow.g, UiKit.Yellow.b, 0.55f)
+                    : new Color(1f, 1f, 1f, 0f);
             }
         }
 
@@ -471,7 +514,7 @@ namespace RouletteParty.UI
         private void RenderHighlight(MatchManager m)
         {
             _highlightRoot.gameObject.SetActive(true);
-            _hlTitle.text = "라운드 " + m.Round + " 결과";
+            _hlBannerText.text = "라운드 " + m.Round + " 결과";
 
             // 라운드 우승자(없으면 ulong.MaxValue).
             if (m.RoundWinnerId != ulong.MaxValue)
@@ -531,10 +574,10 @@ namespace RouletteParty.UI
                 row.bg.color = new Color(1f, 1f, 1f, 0f);
                 row.swatch.color = PlayerPalette.ColorFor(r.ClientId);
                 row.nameText.text = "#" + r.Rank + "  " + PlayerPalette.NameFor(r.ClientId);
-                row.nameText.color = PlayerPalette.ColorFor(r.ClientId);
+                row.nameText.color = UiKit.Ink;
                 row.nameText.fontStyle = FontStyle.Normal;
                 row.scoreText.text = Mathf.RoundToInt(r.Score).ToString();
-                row.scoreText.color = Color.white;
+                row.scoreText.color = UiKit.Ink;
                 row.scoreText.fontStyle = FontStyle.Normal;
             }
         }
@@ -561,14 +604,17 @@ namespace RouletteParty.UI
             {
                 var e = _standings[i];
                 var row = _resRows[i];
-                row.rt.anchoredPosition = new Vector2(0, -(i * (ROWH + 4f)));
-                row.bg.color = new Color(1f, 1f, 1f, 0.06f);
+                row.rt.anchoredPosition = new Vector2(0, -(i * (ROWH + 8f)));
+                // 1등 = 노란 하이라이트, 나머지 = 크림 다크 줄무늬(UCH 종이 느낌).
+                row.bg.color = i == 0
+                    ? new Color(UiKit.Yellow.r, UiKit.Yellow.g, UiKit.Yellow.b, 0.55f)
+                    : new Color(UiKit.CreamDark.r, UiKit.CreamDark.g, UiKit.CreamDark.b, 0.6f);
                 row.swatch.color = PlayerPalette.ColorFor(e.Id);
                 row.nameText.text = (i + 1) + ".  " + PlayerPalette.NameFor(e.Id);
-                row.nameText.color = PlayerPalette.ColorFor(e.Id);
+                row.nameText.color = UiKit.Ink;
                 row.nameText.fontStyle = i == 0 ? FontStyle.Bold : FontStyle.Normal;
                 row.scoreText.text = e.Score.ToString();
-                row.scoreText.color = Color.white;
+                row.scoreText.color = UiKit.Ink;
                 row.scoreText.fontStyle = i == 0 ? FontStyle.Bold : FontStyle.Normal;
             }
         }
@@ -678,17 +724,19 @@ namespace RouletteParty.UI
             SetRect(r.swatch.rectTransform, new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), new Vector2(0f, 0.5f),
                     new Vector2(22, 22), new Vector2(8, 0));
 
-            r.nameText = MakeText(r.go.transform, "", 20, TextAnchor.MiddleLeft, Color.white);
+            r.nameText = MakeText(r.go.transform, "", 20, TextAnchor.MiddleLeft, UiKit.Ink, false);
             SetRect(r.nameText.rectTransform, new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), new Vector2(0f, 0.5f),
                     new Vector2(180, ROWH), new Vector2(38, 0));
 
-            r.scoreText = MakeText(r.go.transform, "", 20, TextAnchor.MiddleRight, Color.white);
+            r.scoreText = MakeText(r.go.transform, "", 20, TextAnchor.MiddleRight, UiKit.Ink, false);
             SetRect(r.scoreText.rectTransform, new Vector2(1f, 0.5f), new Vector2(1f, 0.5f), new Vector2(1f, 0.5f),
                     new Vector2(90, ROWH), new Vector2(-8, 0));
             return r;
         }
 
-        private Text MakeText(Transform parent, string content, int fontSize, TextAnchor anchor, Color col)
+        // outline: 월드 위에 뜨는 텍스트(목표 문구/이름표)만 검정 외곽선. 패널 위 텍스트는 끈다.
+        private Text MakeText(Transform parent, string content, int fontSize, TextAnchor anchor, Color col,
+                              bool outline = true)
         {
             var go = new GameObject("Text", typeof(Text)); // CanvasRenderer 자동 추가
             go.transform.SetParent(parent, false);          // worldPositionStays=false (필수)
@@ -708,10 +756,13 @@ namespace RouletteParty.UI
             rt.sizeDelta = new Vector2(300, 60);
             rt.anchoredPosition = Vector2.zero;
 
-            var o = go.AddComponent<Outline>();
-            o.effectColor = new Color(0f, 0f, 0f, 0.9f);
-            o.effectDistance = new Vector2(1.5f, -1.5f);
-            o.useGraphicAlpha = true;
+            if (outline)
+            {
+                var o = go.AddComponent<Outline>();
+                o.effectColor = new Color(0f, 0f, 0f, 0.9f);
+                o.effectDistance = new Vector2(1.5f, -1.5f);
+                o.useGraphicAlpha = true;
+            }
             return t;
         }
 
@@ -720,7 +771,10 @@ namespace RouletteParty.UI
             var go = new GameObject("Image", typeof(Image));
             go.transform.SetParent(parent, false);
             var img = go.GetComponent<Image>();
-            img.color = col; // sprite 없음 → 빌트인 흰색 1x1을 color로 틴트
+            // 흰색 1x1 스프라이트를 명시 지정한다. sprite 를 비워 두면(빌트인 폴백) 일부 환경에서
+            // 단색 사각형이 그려지지 않는 문제가 있었다(딤/조준점 미표시) - 명시 지정이 안전.
+            img.sprite = UiKit.WhiteSprite;
+            img.color = col;
             img.raycastTarget = false;
             return img;
         }
@@ -730,6 +784,24 @@ namespace RouletteParty.UI
         {
             var img = MakeImage(parent, col);
             img.sprite = UiKit.RoundSprite;
+            img.type = Image.Type.Sliced;
+            return img;
+        }
+
+        // UCH 크림 패널(잉크 테두리가 구워진 9-slice).
+        private Image MakeCream(Transform parent)
+        {
+            var img = MakeImage(parent, Color.white);
+            img.sprite = UiKit.BorderedSprite(UiKit.Cream, UiKit.Ink);
+            img.type = Image.Type.Sliced;
+            return img;
+        }
+
+        // UCH 컬러 스트립(배너) - 색은 스프라이트에 구워져 있어 틴트는 흰색 유지.
+        private Image MakeStrip(Transform parent, Color fill)
+        {
+            var img = MakeImage(parent, Color.white);
+            img.sprite = UiKit.BorderedSprite(fill, UiKit.Ink);
             img.type = Image.Type.Sliced;
             return img;
         }
@@ -758,6 +830,20 @@ namespace RouletteParty.UI
             rt.pivot = new Vector2(0.5f, 0.5f);
             rt.offsetMin = Vector2.zero;
             rt.offsetMax = Vector2.zero;
+        }
+
+        // 페이즈별 배너 색(UCH: 준비 노랑 / 플레이 청록 / 하이라이트·대기 파랑 / 결과 빨강).
+        private static Color PhaseColor(MatchPhase p)
+        {
+            switch (p)
+            {
+                case MatchPhase.Prep:         return UiKit.Yellow;
+                case MatchPhase.Play:         return UiKit.Teal;
+                case MatchPhase.Highlight:    return UiKit.Blue;
+                case MatchPhase.Intermission: return UiKit.Blue;
+                case MatchPhase.Result:       return UiKit.Red;
+                default:                      return UiKit.Grey;
+            }
         }
 
         private static string PhaseKorean(MatchPhase p)
