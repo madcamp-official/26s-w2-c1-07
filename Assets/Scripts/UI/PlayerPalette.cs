@@ -9,7 +9,8 @@ namespace RouletteParty.UI
     /// </summary>
     public static class PlayerPalette
     {
-        // 8색 파티 팔레트(서로 잘 구분되는 채도 높은 색).
+        // 10색 파티 팔레트(방 정원 10명과 동수 - 만석에서도 색이 안 겹친다).
+        // 서로 잘 구분되는 채도 높은 색 + 기존 8색과도 혼동 없는 라임/갈색 추가.
         static readonly Color[] Colors =
         {
             new Color(0.93f, 0.26f, 0.31f), // red
@@ -20,6 +21,8 @@ namespace RouletteParty.UI
             new Color(0.98f, 0.55f, 0.20f), // orange
             new Color(0.30f, 0.82f, 0.80f), // cyan
             new Color(0.95f, 0.45f, 0.72f), // pink
+            new Color(0.68f, 0.85f, 0.25f), // lime (green 보다 밝고 노랑기)
+            new Color(0.62f, 0.44f, 0.28f), // brown (가구 톤과 어울리는 저명도 대비색)
         };
 
         public static Color ColorFor(ulong clientId) => Colors[(int)(clientId % (ulong)Colors.Length)];

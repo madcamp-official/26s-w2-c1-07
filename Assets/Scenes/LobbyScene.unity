@@ -534,8 +534,8 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::RouletteParty.Match.LobbyManager
   ShowTopMostFoldoutHeaderGroup: 1
   _requireManualStart: 1
-  _minPlayers: 2
-  _maxPlayers: 4
+  _minPlayers: 1
+  _maxPlayers: 10
   _prepPresets:
   - 30
   - 60

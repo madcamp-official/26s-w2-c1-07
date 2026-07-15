@@ -63,10 +63,11 @@ namespace RouletteParty.Match
         [Header("대기방 규칙")]
         [Tooltip("켜면 LOBBY 는 호스트의 '게임 시작'으로만 PREP 로 진행된다. 끄면 기존처럼 lobbyDuration 후 자동 시작(솔로 테스트용).")]
         [SerializeField] private bool _requireManualStart = true;
-        [Tooltip("게임 시작 최소 인원.")]
-        [SerializeField] private int _minPlayers = 2;
-        [Tooltip("방 정원. 초과 접속은 접속 승인(ConnectionService) 단계에서 거절된다.")]
-        [SerializeField] private int _maxPlayers = 4;
+        [Tooltip("게임 시작 최소 인원. 1 = 혼자서도 시작 가능(솔로 연습/시연).")]
+        [SerializeField] private int _minPlayers = 1;
+        [Tooltip("방 정원. 초과 접속은 접속 승인(ConnectionService) 단계에서 거절된다. " +
+                 "릴레이 할당 크기(ConnectionService._relayMaxConnections = 정원 - 1)와 함께 맞출 것.")]
+        [SerializeField] private int _maxPlayers = 10;
 
         [Header("매치 설정 (호스트가 대기방에서 라운드별로 조절, 전 클라 표시)")]
         [Tooltip("준비(구조물 설치) 시간 프리셋(초). 라운드마다 이 중 하나를 고른다.")]

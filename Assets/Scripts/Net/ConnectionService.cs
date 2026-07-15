@@ -41,8 +41,8 @@ namespace RouletteParty.Net
         [Tooltip("켜면 유니티 릴레이(참가 코드)로 접속한다: 서로 다른 네트워크 간에도 연결됨. " +
                  "끄면 기존 LAN 직접 IP:포트 접속으로 폴백(오프라인 시연용).")]
         [SerializeField] private bool _useRelay = true;
-        [Tooltip("릴레이 방의 최대 '참가자' 수(호스트 제외). LobbyManager.MaxPlayers - 1 과 맞출 것.")]
-        [SerializeField, Range(1, 15)] private int _relayMaxConnections = 7;
+        [Tooltip("릴레이 방의 최대 '참가자' 수(호스트 제외). LobbyManager.MaxPlayers - 1 과 맞출 것(정원 10 = 9).")]
+        [SerializeField, Range(1, 15)] private int _relayMaxConnections = 9;
 
         [Header("LAN 접속 기본값 (_useRelay 꺼짐일 때)")]
         [Tooltip("방 만들기 기본 UDP 포트. 사용 중이면 다음 포트를 자동 탐색한다(ActivePort 에 확정).")]

@@ -183,7 +183,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::RouletteParty.Net.ConnectionService
   _useRelay: 1
-  _relayMaxConnections: 7
+  _relayMaxConnections: 9
   _defaultPort: 7777
 --- !u!114 &4789298411275404219
 MonoBehaviour:
