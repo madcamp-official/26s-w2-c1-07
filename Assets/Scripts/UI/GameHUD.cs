@@ -21,6 +21,12 @@ namespace RouletteParty.UI
         private const float HEADER = 44f;   // 점수판 제목 아래 첫 줄 오프셋
         private const string TTF = "LegacyRuntime.ttf";
 
+        [Tooltip("이름표 밑변 높이: 플레이어 루트(캡슐 중심) 기준 위로 띄우는 거리(m). 텍스트 렉트의 " +
+                 "피벗이 밑변이라 이 지점에 글자 아랫단이 닿는다. 실측 기준: 모델 머리 꼭대기 = 루트 +0.8m, " +
+                 "점프 스트레치(PlayerJuice) 순간 최대 +1.2m. 1.0 이면 평상시 머리 바로 위(+0.2m)에 붙고, " +
+                 "스트레치 정점의 0.1초가량만 글자가 머리에 살짝 걸친다(바로 위 우선의 의도된 트레이드오프).")]
+        [SerializeField] private float _nameplateHeight = 1.0f;
+
         // ---- 공유 폰트 (한 번만 획득) ----
         private Font _font;
 
@@ -662,7 +668,7 @@ namespace RouletteParty.UI
                 }
 
                 ulong id = no.OwnerClientId;
-                Vector3 world = no.transform.position + Vector3.up * 2.2f;
+                Vector3 world = no.transform.position + Vector3.up * _nameplateHeight;
                 Vector3 sp = cam.WorldToScreenPoint(world);
                 if (sp.z < 0f) // 카메라 뒤 → 숨김
                 {
@@ -682,8 +688,11 @@ namespace RouletteParty.UI
         {
             while (_nameplates.Count < count)
             {
-                var t = MakeText(_canvasRT, "", 22, TextAnchor.MiddleCenter, Color.white);
-                SetRect(t.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
+                var t = MakeText(_canvasRT, "", 22, TextAnchor.LowerCenter, Color.white);
+                // 피벗을 밑변(0.5, 0)에 둔다: 투영점(position 대입)이 글자 아랫단이 되어
+                // "_nameplateHeight = 머리에서 글자까지 거리"가 직관 그대로 맞는다.
+                // 가운데 피벗이면 렉트 절반(17px)이 여백으로 더 떠 보인다.
+                SetRect(t.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0f),
                         new Vector2(180, 34), Vector2.zero);
                 t.fontStyle = FontStyle.Bold;
                 _nameplates.Add(new Nameplate { go = t.gameObject, rt = t.rectTransform, text = t });

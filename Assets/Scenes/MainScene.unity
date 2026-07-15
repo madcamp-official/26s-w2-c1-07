@@ -768,6 +768,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: b3cedebd288d23ff1668ba9c4c84457c, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::RouletteParty.UI.GameHUD
+  _nameplateHeight: 1
 --- !u!4 &1145635442
 Transform:
   m_ObjectHideFlags: 0
