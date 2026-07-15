@@ -1111,7 +1111,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::RouletteParty.Match.MatchManager
   ShowTopMostFoldoutHeaderGroup: 1
-  fastMode: 1
+  fastMode: 0
   fastMultiplier: 0.25
   showDebugGui: 0
   _lobbyDuration: 3

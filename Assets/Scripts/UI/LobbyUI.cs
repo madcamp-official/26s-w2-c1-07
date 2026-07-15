@@ -450,7 +450,7 @@ namespace RouletteParty.UI
             Rect panel = CenterRect(w, h, 580, 580);
             GUILayout.BeginArea(panel, _stPanel);
             GUILayout.Space(58); // 상단 배너(패널 밖에 겹침) 자리
-            GUILayout.Label("참가 코드로 함께 오르는 파티 클라이밍", new GUIStyle(_stSmall) { alignment = TextAnchor.MiddleCenter });
+            GUILayout.Label("얼렁뚱땅 쌓고 오르는 파티 클라이밍", new GUIStyle(_stSmall) { alignment = TextAnchor.MiddleCenter });
             GUILayout.Space(30);
 
             GUILayout.Label($"닉네임 (최대 {NAME_MAX}자, 한글 가능)", _stLabel);
@@ -477,7 +477,7 @@ namespace RouletteParty.UI
             GUILayout.EndArea();
 
             // 타이틀 배너(패널 상단에 겹쳐 살짝 기울임).
-            DrawBanner(new Rect(panel.x + 50, panel.y - 34, panel.width - 100, 82), "클라이밍 파티", UiKit.Yellow, -2f, UiKit.Ink);
+            DrawBanner(new Rect(panel.x + 50, panel.y - 34, panel.width - 100, 82), "얼렁뚱탑", UiKit.Yellow, -2f, UiKit.Ink);
         }
 
         // ---------------- 방 참가 ----------------
