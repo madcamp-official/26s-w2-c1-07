@@ -141,6 +141,47 @@ namespace RouletteParty.UI
                 Cursor.lockState = CursorLockMode.None;
                 Cursor.visible = true;
             }
+
+            // 닉네임 화면에서만 IME 를 켠다(아래 SetIme 주석 참조).
+            // 참가 화면(참가 코드/IP/포트)은 전부 ASCII 라 오히려 꺼 두는 쪽이 낫다:
+            // 한글 IME 가 켜진 상태로 코드를 치면 조합에 먹혀 입력이 안 된다.
+            SetIme(_view == View.Title);
+        }
+
+        private void OnDisable() => SetIme(false);
+
+        // ============================ 한글 입력(IME) ============================
+        // Input System 백엔드는 IME 를 기본으로 꺼 둔다 - 게임은 키를 조작으로 쓰므로 합리적인
+        // 기본값이지만, 그 탓에 한/영 키를 눌러도 조합이 시작되지 않아 닉네임에 한글을 칠 수 없다
+        // (영문은 조합이 없어서 그냥 입력된다 - "한글만 안 되는" 증상의 원인).
+        // Keyboard.SetIMEEnabled 가 네이티브에 EnableIMECompositionCommand 를 보내는 스위치다.
+        //
+        // 레거시 Input.imeCompositionMode 는 쓰지 않는다: 이 프로젝트는 Active Input Handling 이
+        // "Input System Package" 전용(activeInputHandler=1)이라 빌드에서 레거시 Input 접근이
+        // 예외가 될 수 있다. 입력은 프로젝트 전체가 이미 Input System 경로다.
+        //
+        // 글자 입력 화면에서만 켜는 이유: 게임 중에 IME 가 켜져 있으면 WASD·점프가 조합에
+        // 먹혀 조작이 씹힌다.
+        private bool _imeOn;
+
+        private void SetIme(bool on)
+        {
+            if (_imeOn == on) return;
+            var kb = UnityEngine.InputSystem.Keyboard.current;
+            if (kb == null) return; // 키보드가 아직 없으면 다음 프레임에 다시 시도(상태 미갱신)
+            _imeOn = on;
+            kb.SetIMEEnabled(on);
+        }
+
+        // IME 후보 창(한글 조합 중 뜨는 작은 창)을 입력 칸 바로 아래에 붙인다.
+        // 안 잡아주면 화면 좌상단에 뜨는데, 입력하는 곳과 멀어 오작동처럼 보인다.
+        // ImguiScale 이 GUI.matrix 로 전체를 스케일하므로 가상 좌표를 실제 화면 좌표로 변환해야 한다
+        // (GUIToScreenPoint 가 matrix 와 BeginArea 오프셋을 함께 반영한다).
+        private static void SetImeCursorAt(Rect virtualRect)
+        {
+            var kb = UnityEngine.InputSystem.Keyboard.current;
+            if (kb == null || Event.current.type != EventType.Repaint) return;
+            kb.SetIMECursorPosition(GUIUtility.GUIToScreenPoint(new Vector2(virtualRect.x, virtualRect.yMax)));
         }
 
         // 연결 상태 전환 시 사용자 안내 메시지 결정. 확인 가능한 정보(DisconnectReason)까지만
@@ -412,8 +453,12 @@ namespace RouletteParty.UI
             GUILayout.Label("참가 코드로 함께 오르는 파티 클라이밍", new GUIStyle(_stSmall) { alignment = TextAnchor.MiddleCenter });
             GUILayout.Space(30);
 
-            GUILayout.Label($"닉네임 (최대 {NAME_MAX}자)", _stLabel);
-            _nickname = GUILayout.TextField(_nickname ?? "", NAME_MAX, _stInput, GUILayout.Height(52));
+            GUILayout.Label($"닉네임 (최대 {NAME_MAX}자, 한글 가능)", _stLabel);
+            // maxLength 인자를 주지 않는다: IMGUI TextField 의 maxLength 는 "조합 중인 글자"까지
+            // 길이에 넣어 잘라내서 한글 조합을 깨뜨린다. 길이는 조합이 끝난 결과에만 적용한다.
+            _nickname = GUILayout.TextField(_nickname ?? "", _stInput, GUILayout.Height(52));
+            SetImeCursorAt(GUILayoutUtility.GetLastRect());
+            if (_nickname.Length > NAME_MAX) _nickname = _nickname.Substring(0, NAME_MAX);
 
             GUILayout.Space(30);
             bool busy = DeriveNet() == NetState.Busy;
