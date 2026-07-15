@@ -11,7 +11,8 @@ namespace RouletteParty.Match
     /// PREP 구조물 설치 클라 UI. 씬의 단일 GameObject 에 부착(호스트/클라 공용).
     ///
     /// PREP 동안 플레이어는 자유 비행 카메라(PlayerController)로 맵을 날아다니고, 이 컴포넌트가:
-    ///  - 종류 선택: 1(벽)/2(원기둥) = 보이는 구조물, 3 = 보이지 않는 구조물. R = 90도 회전.
+    ///  - 종류 선택: [Alt] 배치 큐 순환, [1] 보이는 구조물 / [2] 투명 구조물로 점프. R/T/G = 3축 90도 회전.
+    ///    형태는 큐가 미리 굴려 확정하고(크기 등급 -> 그 등급의 형태), 투명은 형태가 아니라 항목의 속성이다.
     ///  - 설치 모드(Q 토글):
     ///      표면 모드(기본) = 화면 중앙 조준점 레이캐스트 히트점. 설치된 구조물을 조준하면
     ///                        그 구조물 AABB 의 윗면으로 자동 스냅(구조물 위에 쌓기).
@@ -49,19 +50,20 @@ namespace RouletteParty.Match
         [Tooltip("함정 겹침 거부 시 경고 문구 표시 시간(초).")]
         [SerializeField] private float _trapToastDuration = 2.5f;
 
-        // 보이는 구조물 형태 풀: PREP 시작 때 이번 라운드 지급량 전체를 미리 굴린다(배치 큐).
-        // Wall 은 풀에서 제외(타입/프리팹 보존) - Table(가구)이 대체.
-        private static readonly StructureType[] VisiblePool =
-            { StructureType.Table, StructureType.Cylinder, StructureType.Tree, StructureType.Rock };
-
-        [Header("구조물 크기 티어 (보이는 것만, 배율은 MatchManager.SizeMultiplier)")]
-        [Tooltip("중 크기가 나올 확률.")]
+        [Header("구조물 크기 등급 추첨 (형태 풀은 MatchManager._structureDefs)")]
+        [Tooltip("중 등급이 나올 확률. 나머지는 소.")]
         [SerializeField, Range(0f, 1f)] private float _mediumChance = 0.15f;
-        [Tooltip("대 크기가 나올 확률.")]
+        [Tooltip("대 등급이 나올 확률. 나머지는 소.")]
         [SerializeField, Range(0f, 1f)] private float _largeChance = 0.07f;
+        [Tooltip("투명 구조물도 중/대 등급이 나올 수 있게 할지. 끄면 투명은 항상 소(큰 투명 구조물이 부담스러우면 끈다).")]
+        [SerializeField] private bool _invisibleCanBeBig = true;
 
-        // 큐 항목: 형태 + 크기 티어(0 소/1 중/2 대). 투명 구조물은 항상 소(함정 밸런스).
-        private struct QueueItem { public StructureType Type; public byte Size; }
+        // 큐 항목: 형태 + 투명 여부. 크기는 형태에 내장(MatchManager.SizeOf)이라 따로 들고 다니지 않는다.
+        // 투명은 형태가 아니라 속성이므로 어떤 형태든(나무·옷장) 투명으로 놓일 수 있다.
+        private struct QueueItem { public StructureType Type; public bool Invisible; }
+
+        // 크기 등급별 형태 추첨용 재사용 버퍼(프레임/추첨당 할당 방지).
+        private readonly List<StructureType> _typeBuf = new List<StructureType>();
 
         // 배치 큐: 이번 PREP 에 깔 수 있는 구조물 전부(보이는 N개 + 투명 M개)를 시각화하고
         // Alt 로 다음에 놓을 것을 토글한다. 설치가 서버에서 확정될 때마다 큐에서 소모.
@@ -84,13 +86,10 @@ namespace RouletteParty.Match
         private bool _inPrep;
         private int _baseVisible, _baseInvisible;
 
-        // 블루프린트(배치 프리뷰): 종류별로 실제 프리팹에서 1회 생성해 캐시.
-        // 바닥 오프셋은 캐시하지 않는다 — 3축 회전/크기 배율마다 렌더 바운즈가 달라지므로 매 프레임 계산.
+        // 블루프린트(배치 프리뷰): 형태별로 실제 프리팹에서 1회 생성해 캐시.
+        // 바닥 오프셋은 캐시하지 않는다 — 3축 회전마다 렌더 바운즈가 달라지므로 매 프레임 계산.
         private readonly Dictionary<StructureType, GameObject> _blueprints =
             new Dictionary<StructureType, GameObject>();
-        // 종류별 프리팹 기본 스케일(크기 티어 배율의 기준점).
-        private readonly Dictionary<StructureType, Vector3> _bpBaseScale =
-            new Dictionary<StructureType, Vector3>();
         private GameObject _activeBlueprint;
         private Material _previewMat;
 
@@ -199,17 +198,14 @@ namespace RouletteParty.Match
             if (_queue.Count == 0) { HideBlueprint(); return; }
             _queueIndex = Mathf.Clamp(_queueIndex, 0, _queue.Count - 1);
             QueueItem selected = _queue[_queueIndex];
-            bool invisible = selected.Type == StructureType.Invisible;
+            bool invisible = selected.Invisible;
             int remaining = invisible ? RemainingInvisible() : RemainingVisible();
             if (remaining <= 0) { HideBlueprint(); return; } // 서버 잔여와 이중 안전망
 
+            // 크기는 형태에 내장이라 스케일을 건드리지 않는다(서버 스폰과 동일: 회전 -> 바닥 오프셋).
             var bp = GetBlueprint(selected.Type);
 
-            // 크기 티어 배율을 먼저 적용(서버 스폰과 동일 순서: 배율 -> 회전 -> 바닥 오프셋).
-            if (bp != null && _bpBaseScale.TryGetValue(selected.Type, out var baseScale))
-                bp.transform.localScale = baseScale * MatchManager.Instance.SizeMultiplier(selected.Size);
-
-            // 블루프린트를 먼저 최종 트랜스폼에 놓은 뒤(배율/회전 반영된 렌더 AABB 가 필요),
+            // 블루프린트를 먼저 최종 트랜스폼에 놓은 뒤(회전 반영된 렌더 AABB 가 필요),
             // 설치 허용 범위·시작 섬 금지 + "나에게 보이는" 설치물과의 겹침으로 판정.
             // 초록이어도 숨겨진 함정과 겹치면 서버가 거부한다(OverlapsVisiblePlaced 주석 참조).
             var rot = Quaternion.Euler(_pitchStep * 90f, _yawStep * 90f, _rollStep * 90f);
@@ -223,12 +219,12 @@ namespace RouletteParty.Match
                 Cursor.lockState == CursorLockMode.Locked)
             {
                 MatchManager.Instance.PlaceStructureServerRpc(point, (byte)_yawStep, (byte)_pitchStep,
-                    (byte)_rollStep, (byte)selected.Type, selected.Size);
+                    (byte)_rollStep, (byte)selected.Type, selected.Invisible);
             }
         }
 
         // ============================ 배치 큐 ============================
-        // PREP 시작 시 이번 라운드 지급량 전체를 미리 굴린다: 보이는 것은 형태 랜덤, 투명은 그대로.
+        // PREP 시작 시 이번 라운드 지급량 전체를 미리 굴린다(형태 확정 -> 슬롯 썸네일·블루프린트와 1:1).
         private void BuildQueue()
         {
             _queue.Clear();
@@ -236,31 +232,38 @@ namespace RouletteParty.Match
             var mm = MatchManager.Instance;
             if (mm == null) return;
             for (int i = 0; i < mm.VisibleGrant; i++)
-            {
-                // 크기 티어도 미리 굴린다: 낮은 확률로 중/대(형태와 함께 큐로 확정 -> 프리뷰와 1:1).
-                float r = Random.value;
-                byte size = r < _largeChance ? (byte)2
-                          : r < _largeChance + _mediumChance ? (byte)1 : (byte)0;
-                _queue.Add(new QueueItem
-                {
-                    Type = VisiblePool[Random.Range(0, VisiblePool.Length)],
-                    Size = size,
-                });
-            }
+                _queue.Add(new QueueItem { Type = RollType(mm, true), Invisible = false });
             for (int i = 0; i < mm.InvisibleGrant; i++)
-                _queue.Add(new QueueItem { Type = StructureType.Invisible, Size = 0 });
+                _queue.Add(new QueueItem { Type = RollType(mm, _invisibleCanBeBig), Invisible = true });
+        }
+
+        // 형태 추첨: 크기 등급을 먼저 굴리고(대부분 소, 낮은 확률로 중/대) 그 등급의 형태 중 하나를 뽑는다.
+        // 해당 등급에 배선된 형태가 없으면 소로 폴백한다(정의 테이블이 비어도 죽지 않게).
+        private StructureType RollType(MatchManager mm, bool allowBig)
+        {
+            StructureSize size = StructureSize.Small;
+            if (allowBig)
+            {
+                float r = Random.value;
+                size = r < _largeChance ? StructureSize.Large
+                     : r < _largeChance + _mediumChance ? StructureSize.Medium
+                     : StructureSize.Small;
+            }
+            mm.TypesOfSize(size, _typeBuf);
+            if (_typeBuf.Count == 0 && size != StructureSize.Small) mm.TypesOfSize(StructureSize.Small, _typeBuf);
+            if (_typeBuf.Count == 0) return default(StructureType);
+            return _typeBuf[Random.Range(0, _typeBuf.Count)];
         }
 
         // 설치 확정 시 큐 소모: 선택 항목이 그 종류(보이는/투명)면 선택 항목을, 아니면 같은 종류의 첫 항목을.
         private void ConsumeFromQueue(bool invisible)
         {
             int idx = -1;
-            if (_queueIndex < _queue.Count &&
-                (_queue[_queueIndex].Type == StructureType.Invisible) == invisible)
+            if (_queueIndex < _queue.Count && _queue[_queueIndex].Invisible == invisible)
                 idx = _queueIndex;
             else
                 for (int i = 0; i < _queue.Count; i++)
-                    if ((_queue[i].Type == StructureType.Invisible) == invisible) { idx = i; break; }
+                    if (_queue[i].Invisible == invisible) { idx = i; break; }
             if (idx >= 0) _queue.RemoveAt(idx);
             if (_queueIndex >= _queue.Count) _queueIndex = Mathf.Max(0, _queue.Count - 1);
         }
@@ -268,7 +271,7 @@ namespace RouletteParty.Match
         private void SelectFirstOfKind(bool invisible)
         {
             for (int i = 0; i < _queue.Count; i++)
-                if ((_queue[i].Type == StructureType.Invisible) == invisible) { _queueIndex = i; return; }
+                if (_queue[i].Invisible == invisible) { _queueIndex = i; return; }
         }
 
         private RouletteParty.Net.PlayerController LocalPlayer()
@@ -333,7 +336,6 @@ namespace RouletteParty.Match
             ApplyBlueprintMaterial(bp);
             bp.SetActive(false);
             _blueprints[type] = bp;
-            _bpBaseScale[type] = bp.transform.localScale; // 크기 티어 배율의 기준점
             return bp;
         }
 
@@ -490,15 +492,18 @@ namespace RouletteParty.Match
             if (tex != null) GUI.DrawTexture(inner, tex, ScaleMode.ScaleToFit);
             GUI.color = oc;
 
-            if (item.Type == StructureType.Invisible)
+            if (item.Invisible)
                 GUI.Label(new Rect(r.x, r.yMax - 24f, r.width, 22f), "투명", _badge);
 
-            // 크기 티어 배지(중/대) - 상단에 표시.
-            if (item.Size > 0)
+            // 크기 등급 배지(중/대) - 상단에 표시. 소는 배지 없음(기본).
+            var mm = MatchManager.Instance;
+            StructureSize size = mm != null ? mm.SizeOf(item.Type) : StructureSize.Small;
+            if (size != StructureSize.Small)
             {
+                bool large = size == StructureSize.Large;
                 Color obc = _badgeTop.normal.textColor;
-                _badgeTop.WithTextColor(item.Size == 2 ? UiKit.Red : UiKit.Blue);
-                GUI.Label(new Rect(r.x, r.y + 3f, r.width, 22f), item.Size == 2 ? "대" : "중", _badgeTop);
+                _badgeTop.WithTextColor(large ? UiKit.Red : UiKit.Blue);
+                GUI.Label(new Rect(r.x, r.y + 3f, r.width, 22f), large ? "대" : "중", _badgeTop);
                 _badgeTop.WithTextColor(obc);
             }
         }

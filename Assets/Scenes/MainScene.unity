@@ -583,6 +583,7 @@ MonoBehaviour:
   _trapToastDuration: 2.5
   _mediumChance: 0.15
   _largeChance: 0.07
+  _invisibleCanBeBig: 1
 --- !u!4 &890971250
 Transform:
   m_ObjectHideFlags: 0
@@ -1128,16 +1129,31 @@ MonoBehaviour:
   _visibleAllowance: 030000000200000001000000
   _invisibleAllowance: 010000000200000003000000
   _overlapTolerance: 0.05
-  _wallPrefab: {fileID: 3080545699982424362, guid: 4bd61b8f14406d84fadc0b2b5a9c2cc8, type: 3}
-  _cylinderPrefab: {fileID: 5695219427646287698, guid: 82d7bcb6067fb11478f9ddf0903157bd, type: 3}
-  _invisiblePrefab: {fileID: 463762144606901678, guid: b23093dc222ff5d4c97e675ccd60e863, type: 3}
-  _treePrefab: {fileID: 4333472719036419346, guid: 2afcc1c9cedb8e045b386862a30bbf00, type: 3}
-  _rockPrefab: {fileID: 1956288290601745456, guid: 00e338fdf40af6b4984a95697604c119, type: 3}
-  _tablePrefab: {fileID: 782385439310225288, guid: 36b321860d3ee0d4c99acc6b83136c96, type: 3}
-  _structureSizeMultipliers:
-  - 1
-  - 1.5
-  - 2
+  _structureDefs:
+  - type: 0
+    size: 0
+    prefab: {fileID: 5832076915814291186, guid: dabca0ca19f64da4087faf98a67f4d5e, type: 3}
+  - type: 1
+    size: 0
+    prefab: {fileID: 648036797604522567, guid: f9ee393b4482c4b4f9fb70db52898e40, type: 3}
+  - type: 2
+    size: 0
+    prefab: {fileID: 6944538551683403683, guid: 7a1390acba226c44e8917901c12f26d0, type: 3}
+  - type: 3
+    size: 1
+    prefab: {fileID: 782385439310225288, guid: 36b321860d3ee0d4c99acc6b83136c96, type: 3}
+  - type: 4
+    size: 1
+    prefab: {fileID: 1133678155463004254, guid: 78f6eef6a8ab76940b756bf2f07d4e8e, type: 3}
+  - type: 5
+    size: 1
+    prefab: {fileID: 1956288290601745456, guid: 00e338fdf40af6b4984a95697604c119, type: 3}
+  - type: 6
+    size: 2
+    prefab: {fileID: 7286378372707139349, guid: 0148b6ea4a514ce408c5e57e2aefacf2, type: 3}
+  - type: 7
+    size: 2
+    prefab: {fileID: 4333472719036419346, guid: 2afcc1c9cedb8e045b386862a30bbf00, type: 3}
   _scoring:
     heightScoreMax: 700
     heightCurve:

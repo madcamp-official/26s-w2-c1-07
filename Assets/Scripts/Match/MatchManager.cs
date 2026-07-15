@@ -1,13 +1,28 @@
 using System.Collections.Generic;
 using Unity.Netcode;
 using UnityEngine;
-using UnityEngine.Serialization;
 using RouletteParty.Map; // ClimbMapGenerator
 using RouletteParty.Net; // PlayerController (소유자 텔레포트 위임)
 using RouletteParty.UI;  // ImguiScale (디버그 OnGUI 해상도 스케일링)
 
 namespace RouletteParty.Match
 {
+    /// <summary>
+    /// 구조물 형태 한 종류의 정의(MatchManager 인스펙터 테이블).
+    /// 크기 등급은 스케일 배율이 아니라 형태에 내장된 성질이다 — 대형 구조물은 "2배로 늘린 소형"이
+    /// 아니라 실제로 큰 에셋이라 비례가 깨지지 않는다.
+    /// </summary>
+    [System.Serializable]
+    public struct StructureDef
+    {
+        [Tooltip("형태. 같은 형태가 중복되면 먼저 나온 항목이 이긴다.")]
+        public StructureType type;
+        [Tooltip("크기 등급. 배치 큐가 등급을 먼저 굴린 뒤 그 등급의 형태 중 하나를 뽑는다.")]
+        public StructureSize size;
+        [Tooltip("실물 프리팹(NetworkObject + Structure). NetworkPrefabs 리스트 등록 필수.")]
+        public GameObject prefab;
+    }
+
     /// <summary>
     /// 클라이밍 전환(docs/archive/클라이밍_전환_명세서.md) 호스트 권위 매치 FSM.
     /// 씬 배치 NetworkObject(서버 권위)에 부착. 서버 시작 시 자동 스폰.
@@ -77,21 +92,8 @@ namespace RouletteParty.Match
         [SerializeField] private int[] _invisibleAllowance = { 1, 2, 3 };
         [Tooltip("설치물 겹침 검사의 관통 허용 오차(m). 접촉(면 맞대기)은 허용하고 이 깊이를 넘는 관통만 거부 -> 구조물 위에 쌓기 가능. 값이 클수록 살짝 겹치는 설치까지 허용된다.")]
         [SerializeField] private float _overlapTolerance = 0.05f;
-        [Tooltip("구조물 프리팹(NetworkObject + Structure). NetworkPrefabs 리스트 등록 필수.")]
-        [SerializeField] private GameObject _wallPrefab;
-        [SerializeField] private GameObject _cylinderPrefab;
-        [FormerlySerializedAs("_ghostPrefab")]
-        [SerializeField] private GameObject _invisiblePrefab;
-        [SerializeField] private GameObject _treePrefab;
-        [SerializeField] private GameObject _rockPrefab;
-        [SerializeField] private GameObject _tablePrefab;
-        [Tooltip("구조물 크기 티어 배율(인덱스 0 = 소/기본, 1 = 중, 2 = 대). 배치 큐가 낮은 확률로 중/대를 굴린다.")]
-        [SerializeField] private float[] _structureSizeMultipliers = { 1f, 1.5f, 2f };
-
-        /// <summary>크기 티어 -> 스케일 배율(범위 밖은 기본 1). 서버 스폰과 클라 블루프린트가 공유.</summary>
-        public float SizeMultiplier(int tier) =>
-            (_structureSizeMultipliers != null && tier >= 0 && tier < _structureSizeMultipliers.Length)
-                ? Mathf.Max(0.1f, _structureSizeMultipliers[tier]) : 1f;
+        [Tooltip("구조물 형태 정의 테이블(형태 -> 크기 등급 + 실물 프리팹). 새 형태 추가 = StructureType 에 값 하나 + 여기 한 줄 + NetworkPrefabs 등록.")]
+        [SerializeField] private StructureDef[] _structureDefs;
 
         [Header("점수")]
         [Tooltip("라운드 점수 설정(공식은 MatchScoring.RoundScore 한 곳에만 존재).")]
@@ -562,16 +564,15 @@ namespace RouletteParty.Match
         // ============================ 구조물 설치 (서버 권위) ============================
         /// <summary>
         /// PREP 중 클라 -> 서버 설치 요청. 검증: PREP / 종류별 잔여 개수 / 설치 허용 범위(시작 섬 제외) / 겹침.
-        /// yawStep = 90도 단위 회전(0~3). Invisible 타입 = 보이지 않는 구조물.
+        /// yawStep = 90도 단위 회전(0~3). invisible = 투명 구조물(함정) 여부 — 형태와 무관한 별도 속성이라
+        /// 어떤 형태든 투명으로 놓일 수 있다(투명 나무·투명 옷장).
         /// </summary>
         [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Everyone)]
         public void PlaceStructureServerRpc(Vector3 pos, byte yawStep, byte pitchStep, byte rollStep, byte typeByte,
-                                            byte sizeTier, RpcParams rpcParams = default)
+                                            bool invisible, RpcParams rpcParams = default)
         {
             ulong sender = rpcParams.Receive.SenderClientId;
             var type = (StructureType)typeByte;
-            bool invisible = type == StructureType.Invisible;
-            if (invisible) sizeTier = 0; // 투명 구조물은 크기 고정(함정 밸런스)
 
             if (_phase.Value != MatchPhase.Prep) return;
 
@@ -589,10 +590,10 @@ namespace RouletteParty.Match
             if (prefab == null) { Debug.LogWarning($"[Match] structure prefab for {type} not assigned."); return; }
 
             // 프리팹 "바닥"이 조준점(pos)에 닿도록 피벗을 들어 올린 최종 위치.
-            // 크기 배율/회전(3축 90도 스텝)을 먼저 적용해야 최종 렌더 바운즈로 바닥 오프셋이 나온다.
+            // 회전(3축 90도 스텝)을 먼저 적용해야 최종 렌더 바운즈로 바닥 오프셋이 나온다.
             // 클라 블루프린트(PrepClientUI)와 동일한 계산 -> 프리뷰 위치 = 실물 위치.
+            // (크기는 형태에 내장 -> 스케일을 건드리지 않는다.)
             GameObject go = Instantiate(prefab);
-            go.transform.localScale *= SizeMultiplier(sizeTier);
             go.transform.rotation = Quaternion.Euler(pitchStep * 90f, yawStep * 90f, rollStep * 90f);
             go.transform.position = pos + Vector3.up * Structure.BottomOffset(go);
 
@@ -617,28 +618,42 @@ namespace RouletteParty.Match
             // 종류/설치자는 반드시 Spawn "이후"에 기록한다: 스폰 시 NetworkVariable 이 초기값으로
             // 리셋돼 스폰 전 쓰기가 유실되는 문제를 실측으로 확인(서버 쓰기는 델타 복제로 전 클라 반영).
             var ob = go.GetComponent<Structure>();
-            if (ob != null) ob.ServerInit(type, sender);
+            if (ob != null) ob.ServerInit(type, sender, invisible);
 
             _structures.Add(new StructRec { No = no });
             used[sender] = usedCount + 1;
         }
 
         /// <summary>
-        /// 종류별 구조물 프리팹. 서버 스폰과 클라 블루프린트(PrepClientUI 배치 프리뷰)가
-        /// 같은 프리팹을 쓰므로, 새 구조물 추가 = 프리팹 필드 + 이 switch 에 한 줄이면 끝.
+        /// 형태별 구조물 프리팹(미정의 = null). 서버 스폰과 클라 블루프린트(PrepClientUI 배치 프리뷰)가
+        /// 같은 프리팹을 쓰므로, 새 구조물 추가 = _structureDefs 에 한 줄이면 끝(코드 수정 불필요).
         /// </summary>
         public GameObject PrefabFor(StructureType type)
         {
-            switch (type)
-            {
-                case StructureType.Wall:      return _wallPrefab;
-                case StructureType.Cylinder:  return _cylinderPrefab;
-                case StructureType.Invisible: return _invisiblePrefab;
-                case StructureType.Tree:      return _treePrefab;
-                case StructureType.Rock:      return _rockPrefab;
-                case StructureType.Table:     return _tablePrefab;
-                default:                      return _wallPrefab;
-            }
+            if (_structureDefs != null)
+                for (int i = 0; i < _structureDefs.Length; i++)
+                    if (_structureDefs[i].type == type) return _structureDefs[i].prefab;
+            return null;
+        }
+
+        /// <summary>형태 -> 크기 등급(정의에 없으면 소).</summary>
+        public StructureSize SizeOf(StructureType type)
+        {
+            if (_structureDefs != null)
+                for (int i = 0; i < _structureDefs.Length; i++)
+                    if (_structureDefs[i].type == type) return _structureDefs[i].size;
+            return StructureSize.Small;
+        }
+
+        /// <summary>해당 크기 등급에서 설치 가능한(프리팹이 배선된) 형태들을 buffer 에 채운다.
+        /// 배치 큐 추첨용 — 호출부가 버퍼를 재사용해 프레임당 할당을 피한다.</summary>
+        public void TypesOfSize(StructureSize size, List<StructureType> buffer)
+        {
+            buffer.Clear();
+            if (_structureDefs == null) return;
+            for (int i = 0; i < _structureDefs.Length; i++)
+                if (_structureDefs[i].size == size && _structureDefs[i].prefab != null)
+                    buffer.Add(_structureDefs[i].type);
         }
 
         /// <summary>서버 -> 요청자 단독: 설치가 숨겨진 함정과의 겹침으로 거부됨.
