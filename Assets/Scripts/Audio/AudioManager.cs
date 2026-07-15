@@ -36,7 +36,8 @@ namespace RouletteParty.Audio
         [Header("SFX 클립 (비워두면 해당 사운드는 무음)")]
         [SerializeField] private AudioClip _jump;
         [SerializeField] private AudioClip _land;
-        [SerializeField] private AudioClip _place;
+        [Tooltip("구조물 설치음 후보. 2개 이상이면 설치할 때마다 무작위로 하나를 재생(반복 기계감 방지).")]
+        [SerializeField] private AudioClip[] _placeVariants;
         [SerializeField] private AudioClip _reveal;
         [SerializeField] private AudioClip _death;
         [SerializeField] private AudioClip _playStart;
@@ -85,8 +86,9 @@ namespace RouletteParty.Audio
             if (am == null) return;
             AudioClip clip = am.ClipFor(id);
             if (clip == null) return;
-            // 점프처럼 자주 나는 소리는 매번 살짝 다른 피치로 재생해 기계적 반복을 줄인다.
-            am._sfxSource.pitch = id == Sfx.Jump ? UnityEngine.Random.Range(0.95f, 1.06f) : 1f;
+            // 자주 나는 소리(점프·설치)는 매번 살짝 다른 피치로 재생해 기계적 반복을 줄인다.
+            bool vary = id == Sfx.Jump || id == Sfx.Place;
+            am._sfxSource.pitch = vary ? UnityEngine.Random.Range(0.95f, 1.06f) : 1f;
             am._sfxSource.PlayOneShot(clip, SfxVolume());
         }
 
@@ -96,7 +98,7 @@ namespace RouletteParty.Audio
             {
                 case Sfx.Jump:        return _jump;
                 case Sfx.Land:        return _land;
-                case Sfx.Place:       return _place;
+                case Sfx.Place:       return PickRandom(_placeVariants);
                 case Sfx.Reveal:      return _reveal;
                 case Sfx.Death:       return _death;
                 case Sfx.PlayStart:   return _playStart;
@@ -105,6 +107,14 @@ namespace RouletteParty.Audio
                 case Sfx.UIClick:     return _uiClick;
                 default:              return null;
             }
+        }
+
+        /// <summary>후보 중 하나를 무작위 선택(비었으면 null = 무음). 같은 소리의 반복 기계감을 줄인다.</summary>
+        private static AudioClip PickRandom(AudioClip[] clips)
+        {
+            if (clips == null || clips.Length == 0) return null;
+            if (clips.Length == 1) return clips[0];
+            return clips[UnityEngine.Random.Range(0, clips.Length)];
         }
 
         private static float SfxVolume() =>

@@ -244,7 +244,9 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::RouletteParty.Audio.AudioManager
   _jump: {fileID: 8300000, guid: 1d24b109842496645a4c77fb4ebf5997, type: 3}
   _land: {fileID: 0}
-  _place: {fileID: 8300000, guid: d1a45eaf40d366e45ad0718ddb66d649, type: 3}
+  _placeVariants:
+  - {fileID: 8300000, guid: 7b4751203ff25d0489cbb6873da91f1e, type: 3}
+  - {fileID: 8300000, guid: f0d6c7854ac6c974ab42f30f309f19e7, type: 3}
   _reveal: {fileID: 8300000, guid: a03c02249ff788f478742c1bfd0476d0, type: 3}
   _death: {fileID: 8300000, guid: 35cd3e0ba27599740b9a37d72f0fa8d4, type: 3}
   _playStart: {fileID: 8300000, guid: 16c35b8a205952445bd9ea9a91d181ae, type: 3}
