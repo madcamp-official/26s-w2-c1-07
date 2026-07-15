@@ -1126,8 +1126,8 @@ MonoBehaviour:
   _respawnDelay: 1.5
   _lethalAirFall: 15
   _lethalLandFall: 7
-  _visibleAllowance: 030000000200000001000000
-  _invisibleAllowance: 010000000200000003000000
+  _structureAllowance: 040000000400000004000000
+  _invisiblePerRound: 1
   _overlapTolerance: 0.05
   _structureDefs:
   - type: 0
