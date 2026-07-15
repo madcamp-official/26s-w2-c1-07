@@ -10,7 +10,7 @@ using Unity.Netcode;
 using UnityEngine;
 using UnityEngine.UI;
 using RouletteParty.Match;
-using RouletteParty.Net; // PlayerController.IsAiming (조준점 표시 판정)
+using RouletteParty.Net; // PlayerController (탈락 여부·발끝 높이)
 
 namespace RouletteParty.UI
 {
@@ -67,9 +67,6 @@ namespace RouletteParty.UI
 
         // 이름표(월드 오브젝트 → 화면) 풀
         private readonly List<Nameplate> _nameplates = new List<Nameplate>();
-
-        // 화면 중앙 조준점(PLAY 중에만 표시). 마우스룩 조준 시점과 짝을 이룬다.
-        private RectTransform _crosshair;
 
         // ---- 재사용 임시 버퍼 (프레임당 GC 최소화) ----
         private readonly List<NetworkObject> _players = new List<NetworkObject>();
@@ -286,22 +283,8 @@ namespace RouletteParty.UI
             SetRect(_resRowsParent, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0.5f, 1f),
                     new Vector2(540, 440), new Vector2(0, -146));
 
-            // --- 조준점(화면 중앙 십자) ---
-            // 월드 위 반투명은 이 URP 구성에서 안 그려지므로 전부 불투명(위 결과 카드 주석 참조).
-            _crosshair = MakeRect(_canvasRT, "Crosshair");
-            SetRect(_crosshair, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
-                    new Vector2(24, 24), Vector2.zero);
-            var chH = MakeImage(_crosshair, Color.white); // 가로 바
-            SetRect(chH.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
-                    new Vector2(18, 2), Vector2.zero);
-            var chV = MakeImage(_crosshair, Color.white); // 세로 바
-            SetRect(chV.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
-                    new Vector2(2, 18), Vector2.zero);
-            var chDot = MakeImage(_crosshair, UiKit.Yellow); // 중앙 도트(액센트)
-            SetRect(chDot.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
-                    new Vector2(4, 4), Vector2.zero);
-            _crosshair.gameObject.SetActive(false);
-
+            // 화면 중앙 조준점은 두지 않는다: 등반 중에는 겨눌 대상이 없고, 설치 단계의
+            // 위치 피드백은 블루프린트(초록/빨강 실물 프리뷰)가 조준점보다 정확히 전달한다.
             HideAllPhaseRoots();
             _built = true;
         }
@@ -371,14 +354,14 @@ namespace RouletteParty.UI
             BuildStandings(m);
             FillScoreboard(localId);
 
-            // --- 로컬 플레이어 상태(조준·탈락·높이) ---
-            bool localAiming = false, localDead = false;
+            // --- 로컬 플레이어 상태(탈락·높이) ---
+            bool localDead = false;
             float localY = 0f;
             for (int i = 0; i < _players.Count; i++)
             {
                 if (_players[i].OwnerClientId != localId) continue;
                 var pc = _players[i].GetComponent<PlayerController>();
-                if (pc != null) { localAiming = pc.IsAiming; localDead = pc.Dead.Value; }
+                if (pc != null) localDead = pc.Dead.Value;
                 localY = pc != null ? pc.FootY : _players[i].transform.position.y; // 발끝 기준(채점과 동일)
                 break;
             }
@@ -402,14 +385,10 @@ namespace RouletteParty.UI
                 if (showDead) _deadBanner.text = "탈락! 관전 중 (좌클릭: 대상 전환)";
             }
 
-            // 카드 화면(하이라이트/대기/결과): 조준점·이름표를 숨긴다(카드 위 겹침 방지).
+            // 카드 화면(하이라이트/대기/결과): 이름표를 숨긴다(카드 위 겹침 방지).
             bool cardPhase = m.CurrentPhase == MatchPhase.Highlight ||
                              m.CurrentPhase == MatchPhase.Intermission ||
                              m.CurrentPhase == MatchPhase.Result;
-
-            // --- 조준점: 로컬 플레이어가 조준 시점일 때 표시(카드 화면·탈락 제외) ---
-            if (_crosshair != null)
-                _crosshair.gameObject.SetActive(localAiming && !localDead && !cardPhase);
 
             // --- 이름표 ---
             if (cardPhase)
@@ -429,7 +408,6 @@ namespace RouletteParty.UI
             if (_subPanel != null) _subPanel.gameObject.SetActive(false);
             EnsureRows(_scoreRows, _scorePanel.transform, 0);
             HideAllPhaseRoots();
-            if (_crosshair != null) _crosshair.gameObject.SetActive(false);
             if (_deadPanelGo != null) _deadPanelGo.SetActive(false);
             for (int i = 0; i < _nameplates.Count; i++)
                 _nameplates[i].go.SetActive(false);
@@ -791,7 +769,7 @@ namespace RouletteParty.UI
             go.transform.SetParent(parent, false);
             var img = go.GetComponent<Image>();
             // 흰색 1x1 스프라이트를 명시 지정한다. sprite 를 비워 두면(빌트인 폴백) 일부 환경에서
-            // 단색 사각형이 그려지지 않는 문제가 있었다(딤/조준점 미표시) - 명시 지정이 안전.
+            // 단색 사각형이 그려지지 않는 문제가 있었다(딤 미표시) - 명시 지정이 안전.
             img.sprite = UiKit.WhiteSprite;
             img.color = col;
             img.raycastTarget = false;

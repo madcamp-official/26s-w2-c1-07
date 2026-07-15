@@ -45,6 +45,28 @@ namespace RouletteParty.UI
         public static readonly Color Accent      = new Color(1f, 0.83f, 0.35f, 1f);
         public static readonly Color Danger      = new Color(1f, 0.38f, 0.38f, 1f);
 
+        // ================= 텍스트 색(상태 고정) =================
+        /// <summary>
+        /// 스타일의 모든 상태(기본/호버/눌림/포커스 + on 계열) 글자색을 하나로 고정한다.
+        ///
+        /// IMGUI 기본 스킨은 호버 시 글자를 흰색으로 바꾼다. 라벨 스타일을 토글·버튼처럼
+        /// "호버가 있는" 컨트롤에 넘기면 그 규칙이 살아나서, 크림 패널 위에서는 마우스를
+        /// 올리는 순간 글씨가 배경에 묻혀 사라진다. 색이 변하면 안 되는 텍스트는 반드시
+        /// 이 헬퍼로 상태별 색을 못 박는다(스타일 생성 시 1회).
+        /// </summary>
+        public static GUIStyle WithTextColor(this GUIStyle st, Color c)
+        {
+            st.normal.textColor    = c;
+            st.hover.textColor     = c;
+            st.active.textColor    = c;
+            st.focused.textColor   = c;
+            st.onNormal.textColor  = c;
+            st.onHover.textColor   = c;
+            st.onActive.textColor  = c;
+            st.onFocused.textColor = c;
+            return st;
+        }
+
         // ================= 텍스처/스프라이트 생성 =================
         private const int TEX = 48;        // 텍스처 한 변(9-slice 원본)
         private const int RADIUS = 14;     // 코너 반지름(px)

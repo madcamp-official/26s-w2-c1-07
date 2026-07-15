@@ -304,16 +304,17 @@ namespace RouletteParty.UI
             _stLabel  = new GUIStyle(GUI.skin.label)     { fontSize = 24 };
             _stSmall  = new GUIStyle(GUI.skin.label)     { fontSize = 20, wordWrap = true };
             _stRow    = new GUIStyle(GUI.skin.label)     { fontSize = 26, richText = true };
-            _stTitle.normal.textColor = UiKit.Ink;
-            _stH2.normal.textColor    = UiKit.Ink;
-            _stLabel.normal.textColor = UiKit.Ink;
-            _stSmall.normal.textColor = UiKit.InkSoft;
-            _stRow.normal.textColor   = UiKit.Ink;
+            // 상태별로 못 박는다: 기본 스킨의 "호버 = 흰 글씨" 규칙이 크림 패널 위에서 글씨를 지운다.
+            _stTitle.WithTextColor(UiKit.Ink);
+            _stH2.WithTextColor(UiKit.Ink);
+            _stLabel.WithTextColor(UiKit.Ink);
+            _stSmall.WithTextColor(UiKit.InkSoft);
+            _stRow.WithTextColor(UiKit.Ink);
 
             // 배너 위 흰색 볼드(컬러 스트립 헤더 텍스트).
             _stBannerText = new GUIStyle(GUI.skin.label)
             { fontSize = 44, alignment = TextAnchor.MiddleCenter, fontStyle = FontStyle.Bold };
-            _stBannerText.normal.textColor = Color.white;
+            _stBannerText.WithTextColor(Color.white);
 
             // 입력 필드: 밝은 바탕 + 잉크 테두리 + 잉크 텍스트.
             _stInput = new GUIStyle(GUI.skin.textField)
@@ -327,9 +328,7 @@ namespace RouletteParty.UI
             _stInput.normal.background = inputTex;
             _stInput.focused.background = inputTex;
             _stInput.hover.background = inputTex;
-            _stInput.normal.textColor = UiKit.Ink;
-            _stInput.focused.textColor = UiKit.Ink;
-            _stInput.hover.textColor = UiKit.Ink;
+            _stInput.WithTextColor(UiKit.Ink);
 
             // 크림 패널(잉크 테두리 9-slice).
             _stPanel = new GUIStyle(GUI.skin.box)
@@ -355,8 +354,7 @@ namespace RouletteParty.UI
             Texture2D n, h, a;
             UiKit.ButtonTex(fill, out n, out h, out a);
             st.normal.background = n; st.hover.background = h; st.active.background = a; st.focused.background = n;
-            st.normal.textColor = Color.white; st.hover.textColor = Color.white;
-            st.active.textColor = Color.white; st.focused.textColor = Color.white;
+            st.WithTextColor(Color.white); // 채도 높은 채움 위 -> 흰 글씨가 모든 상태에서 읽힌다
             _btnCache[key] = st;
             return st;
         }
@@ -380,9 +378,9 @@ namespace RouletteParty.UI
             GUIUtility.RotateAroundPivot(tiltDeg, area.center);
             GUI.Box(area, GUIContent.none, Strip(fill));
             Color oc = _stBannerText.normal.textColor;
-            _stBannerText.normal.textColor = textColor;
+            _stBannerText.WithTextColor(textColor);
             GUI.Label(area, text, _stBannerText);
-            _stBannerText.normal.textColor = oc;
+            _stBannerText.WithTextColor(oc);
             GUI.matrix = old;
         }
 

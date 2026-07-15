@@ -424,22 +424,21 @@ namespace RouletteParty.Match
             _slotIdle = new GUIStyle(_slotSel);
             _slotIdle.normal.background = UiKit.BorderedTex(UiKit.Cream, UiKit.Ink); // 대기 = 크림 슬롯
 
+            // 상태별 글자색을 못 박는다(기본 스킨의 "호버 = 흰 글씨"가 슬롯 위에서 글씨를 지운다).
             _badge = new GUIStyle(GUI.skin.label)
-            { fontSize = 16, fontStyle = FontStyle.Bold, alignment = TextAnchor.LowerCenter };
-            _badge.normal.textColor = UiKit.Ink;
+            { fontSize = 16, fontStyle = FontStyle.Bold, alignment = TextAnchor.LowerCenter }
+            .WithTextColor(UiKit.Ink);
 
             _badgeTop = new GUIStyle(_badge) { alignment = TextAnchor.UpperCenter }; // 크기 티어(중/대)
 
-            _hint = new GUIStyle(GUI.skin.label) { fontSize = 16, richText = true };
-            _hint.normal.textColor = Color.white;
+            _hint = new GUIStyle(GUI.skin.label) { fontSize = 16, richText = true }.WithTextColor(Color.white);
 
             _toastStyle = new GUIStyle(GUI.skin.box)
             {
                 fontSize = 26, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleCenter,
                 border = new RectOffset(UiKit.ImguiBorder, UiKit.ImguiBorder, UiKit.ImguiBorder, UiKit.ImguiBorder),
-            };
+            }.WithTextColor(Color.white);
             _toastStyle.normal.background = UiKit.BorderedTex(UiKit.Red, UiKit.Ink);
-            _toastStyle.normal.textColor = Color.white;
         }
 
         private void OnGUI()
@@ -498,9 +497,9 @@ namespace RouletteParty.Match
             if (item.Size > 0)
             {
                 Color obc = _badgeTop.normal.textColor;
-                _badgeTop.normal.textColor = item.Size == 2 ? UiKit.Red : UiKit.Blue;
+                _badgeTop.WithTextColor(item.Size == 2 ? UiKit.Red : UiKit.Blue);
                 GUI.Label(new Rect(r.x, r.y + 3f, r.width, 22f), item.Size == 2 ? "대" : "중", _badgeTop);
-                _badgeTop.normal.textColor = obc;
+                _badgeTop.WithTextColor(obc);
             }
         }
 

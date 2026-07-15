@@ -49,7 +49,7 @@ namespace RouletteParty.Core
         private bool _open;
         private int _tab; // 0 = 설정, 1 = 설명(조작/규칙 도움말)
         private Rect _panelRect;
-        private GUIStyle _title, _panel, _label, _head, _small, _tabOn, _tabOff;
+        private GUIStyle _title, _panel, _label, _head, _small, _tabOn, _tabOff, _keyCap, _rule;
         private Vector2 _helpScroll;
 
         private void Awake()
@@ -126,7 +126,7 @@ namespace RouletteParty.Core
             if (_title != null) return;
             _title = new GUIStyle(GUI.skin.label)
             { fontStyle = FontStyle.Bold, fontSize = 30, alignment = TextAnchor.MiddleCenter };
-            _title.normal.textColor = UiKit.Ink;
+            _title.WithTextColor(UiKit.Ink);
 
             _panel = new GUIStyle(GUI.skin.box)
             {
@@ -135,12 +135,25 @@ namespace RouletteParty.Core
             };
             _panel.normal.background = UiKit.BorderedTex(UiKit.Cream, UiKit.Ink);
 
-            _label = new GUIStyle(GUI.skin.label) { fontSize = 20, richText = true };
-            _label.normal.textColor = UiKit.Ink;
-            _head = new GUIStyle(GUI.skin.label) { fontSize = 23, fontStyle = FontStyle.Bold };
-            _head.normal.textColor = UiKit.Ink;
-            _small = new GUIStyle(GUI.skin.label) { fontSize = 18, richText = true, wordWrap = true };
-            _small.normal.textColor = UiKit.InkSoft;
+            // 아래 라벨들은 토글에도 넘겨 쓰므로(호버가 있는 컨트롤) 상태별 색을 못 박아야 한다.
+            // 그러지 않으면 기본 스킨 규칙대로 호버 시 흰 글씨가 되어 크림 패널 위에서 사라진다.
+            _label = new GUIStyle(GUI.skin.label) { fontSize = 20, richText = true }.WithTextColor(UiKit.Ink);
+            _head  = new GUIStyle(GUI.skin.label) { fontSize = 23, fontStyle = FontStyle.Bold }.WithTextColor(UiKit.Ink);
+            _small = new GUIStyle(GUI.skin.label) { fontSize = 18, richText = true, wordWrap = true }
+                     .WithTextColor(UiKit.InkSoft);
+
+            // 키캡: 어두운 크림 바탕 + 잉크 테두리 -> 본문과 한눈에 구분되는 "누르는 것".
+            _keyCap = new GUIStyle(GUI.skin.box)
+            {
+                fontSize = 17, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleCenter,
+                border = new RectOffset(UiKit.ImguiBorder, UiKit.ImguiBorder, UiKit.ImguiBorder, UiKit.ImguiBorder),
+                padding = new RectOffset(8, 8, 4, 4),
+            }.WithTextColor(UiKit.Ink);
+            _keyCap.normal.background = UiKit.BorderedTex(UiKit.CreamDark, UiKit.Ink);
+
+            // 섹션 구분선(1px 잉크 띠).
+            _rule = new GUIStyle();
+            _rule.normal.background = Texture2D.whiteTexture;
 
             _tabOn = MakeTab(UiKit.Teal);
             _tabOff = MakeTab(UiKit.Grey);
@@ -164,8 +177,7 @@ namespace RouletteParty.Core
             Texture2D n, h, a;
             UiKit.ButtonTex(fill, out n, out h, out a);
             st.normal.background = n; st.hover.background = h; st.active.background = a; st.focused.background = n;
-            st.normal.textColor = Color.white; st.hover.textColor = Color.white;
-            st.active.textColor = Color.white; st.focused.textColor = Color.white;
+            st.WithTextColor(Color.white); // 채도 높은 채움 위 -> 흰 글씨가 모든 상태에서 읽힌다
             return st;
         }
 
@@ -176,7 +188,7 @@ namespace RouletteParty.Core
 
             ImguiScale.Apply(); // 이하 좌표는 1080p 기준 가상 픽셀
             if (UiKit.Font != null) GUI.skin.font = UiKit.Font; // 번들 폰트
-            const float W = 560f, H = 620f;
+            const float W = 660f, H = 700f; // 설명 탭의 [키캡]+설명 2단이 잘리지 않는 크기
             _panelRect = new Rect((ImguiScale.VirtualWidth - W) * 0.5f, (ImguiScale.VirtualHeight - H) * 0.5f, W, H);
 
             GUILayout.BeginArea(_panelRect, _panel);
@@ -236,37 +248,73 @@ namespace RouletteParty.Core
 
         // 조작/규칙 도움말. 구조물 설치의 상세 안내는 PREP 화면에서 전부 여기로 옮겨 왔다
         // (PREP 은 카트라이더식 슬롯 바만 표시 - PrepClientUI).
+        //
+        // 조작은 줄글이 아니라 [키캡] + 설명 2단으로 그린다: 키 열 너비가 고정이라 설명이
+        // 세로로 정렬되고, 필요한 키 하나를 훑어 찾는 실제 사용 방식과 맞는다.
+        private const float KEY_W = 168f; // 키캡 열 너비(가장 긴 "Space / Shift" 가 안 잘리는 폭)
+
         private void DrawHelpTab()
         {
             _helpScroll = GUILayout.BeginScrollView(_helpScroll);
 
-            GUILayout.Label("기본 조작", _head);
-            GUILayout.Label("<b>WASD</b> 이동 · 마우스 시선 · <b>Space</b> 점프(누른 시간만큼 높이 조절) · <b>Esc</b> 커서 잠금 해제", _small);
-            GUILayout.Space(10);
+            Section("기본 조작");
+            KeyRow("W A S D", "이동");
+            KeyRow("마우스", "시선");
+            KeyRow("Space", "점프 (길게 누를수록 높이 뜸)");
+            KeyRow("Esc", "커서 잠금 해제");
+            KeyRow("F1", "이 창 열기 / 닫기");
 
-            GUILayout.Label("준비 페이즈 - 구조물 설치", _head);
-            GUILayout.Label(
-                "자유 비행: <b>WASD</b> 수평 이동, <b>Space</b> 상승 / <b>Shift</b> 하강\n" +
-                "<b>좌클릭</b> 설치 (프리뷰 초록 = 설치 가능, 빨강 = 불가)\n" +
-                "<b>[Alt]</b> 다음 구조물로 전환 · <b>[1]</b> 보이는 것 / <b>[2]</b> 투명 선택\n" +
-                "<b>[R]</b> Y축 · <b>[T]</b> X축 · <b>[G]</b> Z축 90도 회전\n" +
-                "<b>[Q]</b> 설치 모드 전환: 표면(조준점) / 공중(휠로 거리 조절)\n" +
-                "설치된 구조물을 조준하면 그 위에 쌓입니다. 설치물은 3라운드 내내 누적됩니다.", _small);
-            GUILayout.Space(10);
+            Section("준비 단계 - 구조물 설치");
+            KeyRow("W A S D", "수평 비행");
+            KeyRow("Space / Shift", "상승 / 하강");
+            KeyRow("좌클릭", "설치 (프리뷰 초록 = 가능, 빨강 = 불가)");
+            KeyRow("Alt", "다음 구조물로 전환");
+            KeyRow("1 / 2", "보이는 구조물 / 투명 구조물 선택");
+            KeyRow("R / T / G", "Y축 / X축 / Z축 90도 회전");
+            KeyRow("Q", "설치 모드 전환 (표면 / 공중)");
+            KeyRow("휠", "공중 모드에서 설치 거리 조절");
+            GUILayout.Space(6);
+            GUILayout.Label("설치된 구조물을 바라보면 그 위에 쌓입니다. 설치물은 3라운드 내내 사라지지 않습니다.", _small);
 
-            GUILayout.Label("투명 구조물(함정)", _head);
+            Section("투명 구조물 (함정)");
             GUILayout.Label(
                 "상대에게 보이지 않고, 부딪히면 잠깐 모습이 드러납니다.\n" +
                 "상대가 내 함정에 걸려 떨어지면 설치자가 점수를 얻습니다(셀프 제외).", _small);
-            GUILayout.Space(10);
 
-            GUILayout.Label("점수", _head);
+            Section("점수");
             GUILayout.Label(
                 "진행도(최고 높이 + 종료 높이) · 정상 도달 시간 · 청크 선착순 보너스\n" +
                 "순위 점수(참가자 수 비례) · 안정성 보너스(무탈락) · 반복 탈락 감점\n" +
                 "라운드 종료 시점의 위치가 중요합니다. 마지막까지 버티세요!", _small);
 
+            GUILayout.Space(8);
             GUILayout.EndScrollView();
+        }
+
+        // 섹션 헤더 + 얇은 구분선. 훑을 때 눈이 걸리는 앵커 역할.
+        private void Section(string title)
+        {
+            GUILayout.Space(14);
+            GUILayout.Label(title, _head);
+            Color oc = GUI.color;
+            GUI.color = new Color(UiKit.Ink.r, UiKit.Ink.g, UiKit.Ink.b, 0.22f);
+            GUILayout.Box(GUIContent.none, _rule, GUILayout.Height(2), GUILayout.ExpandWidth(true));
+            GUI.color = oc;
+            GUILayout.Space(6);
+        }
+
+        // 조작 한 줄: [키캡] 설명.
+        private void KeyRow(string keys, string desc)
+        {
+            GUILayout.BeginHorizontal();
+            GUILayout.Box(keys, _keyCap, GUILayout.Width(KEY_W), GUILayout.Height(28));
+            GUILayout.Space(12);
+            GUILayout.BeginVertical();
+            GUILayout.Space(4); // 설명을 키캡 세로 중앙에 맞춤
+            GUILayout.Label(desc, _label);
+            GUILayout.EndVertical();
+            GUILayout.EndHorizontal();
+            GUILayout.Space(3);
         }
 
         // 라벨 + 슬라이더 + 현재 값 한 줄. 값이 바뀌면 즉시 Store(디스크 Save 는 닫을 때).
