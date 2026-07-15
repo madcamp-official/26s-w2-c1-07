@@ -339,16 +339,6 @@ cd web-prototype && npm install -g pnpm && pnpm install && pnpm dev   # http://l
 -
 -
 
-### 팀원별 소감
-
-**권순호:**
-
-> 
-
-**이유담:**
-
-> 
-
 ---
 
 ## 참고 자료
