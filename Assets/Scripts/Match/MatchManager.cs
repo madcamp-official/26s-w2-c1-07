@@ -86,10 +86,10 @@ namespace RouletteParty.Match
         [SerializeField] private float _lethalLandFall = 7f;
 
         [Header("구조물 지급/설치")]
-        [Tooltip("라운드별 보이는 구조물 지급 개수(인덱스 0 = 라운드 1). 이월 없음.")]
-        [SerializeField] private int[] _visibleAllowance = { 3, 2, 1 };
-        [Tooltip("라운드별 보이지 않는 구조물 지급 개수(인덱스 0 = 라운드 1). 이월 없음.")]
-        [SerializeField] private int[] _invisibleAllowance = { 1, 2, 3 };
+        [Tooltip("라운드별 구조물 지급 총 개수(인덱스 0 = 라운드 1). 이월 없음. 호스트가 대기방에서 고르면 그 값이 우선한다.")]
+        [SerializeField] private int[] _structureAllowance = { 4, 4, 4 };
+        [Tooltip("지급분 중 투명(함정)으로 나가는 개수. 규칙상 1 = '구조물 중 한 개만 확정으로 투명'. 나머지는 전부 보이는 구조물.")]
+        [SerializeField] private int _invisiblePerRound = 1;
         [Tooltip("설치물 겹침 검사의 관통 허용 오차(m). 접촉(면 맞대기)은 허용하고 이 깊이를 넘는 관통만 거부 -> 구조물 위에 쌓기 가능. 값이 클수록 살짝 겹치는 설치까지 허용된다.")]
         [SerializeField] private float _overlapTolerance = 0.05f;
         [Tooltip("구조물 형태 정의 테이블(형태 -> 크기 등급 + 실물 프리팹). 새 형태 추가 = StructureType 에 값 하나 + 여기 한 줄 + NetworkPrefabs 등록.")]
@@ -150,9 +150,20 @@ namespace RouletteParty.Match
         public NetworkList<RoundResult> Results => _results;
         /// <summary>가장 최근 라운드 통계(하이라이트 카드용). Round == 0 이면 아직 없음.</summary>
         public RoundStats RoundStats => _roundStats.Value;
-        /// <summary>현재 라운드의 지급 개수(클라 UI 표시용).</summary>
-        public int VisibleGrant   => GrantOf(_visibleAllowance, _round.Value);
-        public int InvisibleGrant => GrantOf(_invisibleAllowance, _round.Value);
+        /// <summary>현재 라운드의 구조물 지급 총 개수. 대기방 설정이 있으면 그 값, 없으면 인스펙터 배열.</summary>
+        public int StructureGrant
+        {
+            get
+            {
+                int v = MatchSettings.CountOf(_round.Value);
+                return v > 0 ? v : GrantOf(_structureAllowance, _round.Value);
+            }
+        }
+        /// <summary>지급분 중 투명(함정) 개수 = 1 고정("구조물 중 한 개만 확정으로 투명").
+        /// 지급이 그보다 적으면 지급 수만큼으로 줄어든다.</summary>
+        public int InvisibleGrant => Mathf.Clamp(_invisiblePerRound, 0, StructureGrant);
+        /// <summary>지급분 중 보이는 구조물 개수(총 지급 - 투명 몫).</summary>
+        public int VisibleGrant   => Mathf.Max(0, StructureGrant - InvisibleGrant);
         /// <summary>설치물 겹침 검사의 관통 허용 오차(접촉 허용). 클라 블루프린트 예비검증(PrepClientUI)이 서버와 같은 값을 쓴다.</summary>
         public float OverlapTolerance => _overlapTolerance;
 
@@ -237,21 +248,26 @@ namespace RouletteParty.Match
             // (전원 탈락 조기 종료 규칙은 자동 부활 도입으로 폐지 — 탈락은 일시 상태다.)
         }
 
-        // 준비/등반 시간은 호스트가 대기방에서 고른 값(MatchSettings)이 우선, 미설정 시 인스펙터 기본값.
+        // 준비/등반 시간은 호스트가 대기방에서 고른 "라운드별" 값(MatchSettings)이 우선,
+        // 미설정(0 이하) 시 인스펙터 기본값. EnterPhase 시점에 _round 가 이미 확정돼 있어 안전하다
+        // (Lobby -> round=1 -> Prep, Intermission -> round++ -> Prep).
         // 나머지 연출 페이즈(로비/하이라이트/대기/결과)는 인스펙터에서 페이즈별로 조절한다.
         private float BaseDuration(MatchPhase p)
         {
             switch (p)
             {
                 case MatchPhase.Lobby:     return _lobbyDuration;
-                case MatchPhase.Prep:      return MatchSettings.PrepSeconds > 0f ? MatchSettings.PrepSeconds : _prepDuration;
-                case MatchPhase.Play:      return MatchSettings.PlaySeconds > 0f ? MatchSettings.PlaySeconds : _playDuration;
+                case MatchPhase.Prep:      return Positive(MatchSettings.PrepOf(_round.Value), _prepDuration);
+                case MatchPhase.Play:      return Positive(MatchSettings.PlayOf(_round.Value), _playDuration);
                 case MatchPhase.Highlight: return _highlightDuration;
                 case MatchPhase.Intermission: return _intermissionDuration;
                 case MatchPhase.Result:    return _resultDuration;
                 default:                   return 3f;
             }
         }
+
+        // 대기방 설정(0 이하 = 미설정)이면 인스펙터 기본값으로 폴백.
+        private static float Positive(float configured, float fallback) => configured > 0f ? configured : fallback;
 
         private float EffectiveDuration(MatchPhase p) =>
             BaseDuration(p) * (fastMode ? fastMultiplier : 1f);

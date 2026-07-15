@@ -392,6 +392,14 @@ namespace RouletteParty.UI
             return clicked;
         }
 
+        // 절대 좌표 버전(설정 그리드처럼 좌표를 직접 잡는 곳). 클릭음은 동일.
+        private static bool ClkRect(Rect r, string label, GUIStyle style)
+        {
+            bool clicked = GUI.Button(r, label, style);
+            if (clicked) AudioManager.Play(Sfx.UIClick);
+            return clicked;
+        }
+
         private static Rect CenterRect(float w, float h, float pw, float ph) =>
             new Rect((w - pw) * 0.5f, (h - ph) * 0.5f, pw, ph);
 
@@ -498,7 +506,8 @@ namespace RouletteParty.UI
             var cs = ConnectionService.Instance;
             bool isServer = nm != null && nm.IsServer;
 
-            Rect panel = CenterRect(w, h, 820, 760);
+            // 라운드별 설정 그리드(3라운드 x 준비/등반/구조물)가 들어가야 해서 넓다.
+            Rect panel = CenterRect(w, h, 940, 880);
             GUILayout.BeginArea(panel, _stPanel);
             GUILayout.Space(50);
 
@@ -582,20 +591,11 @@ namespace RouletteParty.UI
 
             GUILayout.FlexibleSpace();
 
-            // ---- 매치 설정(페이즈 시간): 호스트 = 프리셋 버튼 편집, 참가자 = 표시만 ----
+            // ---- 매치 설정(라운드별): 호스트 = 프리셋 버튼 편집, 참가자 = 표시만 ----
             if (lm != null && lm.IsSpawned)
             {
-                if (meHost)
-                {
-                    DrawTimingRow("준비 시간", lm.PrepPresets, lm.PrepSeconds,
-                                  v => lm.SetPhaseTimingServerRpc(v, lm.PlaySeconds));
-                    DrawTimingRow("등반 시간", lm.PlayPresets, lm.PlaySeconds,
-                                  v => lm.SetPhaseTimingServerRpc(lm.PrepSeconds, v));
-                }
-                else
-                {
-                    GUILayout.Label($"매치 설정   준비 <b>{FormatSec(lm.PrepSeconds)}</b> · 등반 <b>{FormatSec(lm.PlaySeconds)}</b>", _stRow);
-                }
+                if (meHost) DrawSetupGrid(lm);
+                else        DrawSetupReadonly(lm);
                 GUILayout.Space(8);
             }
 
@@ -628,25 +628,105 @@ namespace RouletteParty.UI
             GUILayout.Space(12);
             GUILayout.EndArea();
 
-            DrawBanner(new Rect(panel.x + 240, panel.y - 32, panel.width - 480, 74), "대기방", UiKit.Blue, -1.5f, Color.white);
+            DrawBanner(new Rect(panel.x + 300, panel.y - 32, panel.width - 600, 74), "대기방", UiKit.Blue, -1.5f, Color.white);
         }
 
-        // 페이즈 시간 프리셋 한 줄: 선택 = 청록, 나머지 = 회색(호스트 전용 편집).
-        private void DrawTimingRow(string label, float[] presets, float current, System.Action<float> onPick)
+        // ---- 매치 설정 그리드(호스트 전용 편집) ----
+        // 라운드 x (준비 시간 / 등반 시간 / 구조물 개수) 3열. 각 칸은 프리셋 버튼이고
+        // 선택된 것만 청록으로 켜진다. 표준 모드는 9개 값을 한 번에 되돌린다.
+        //
+        // 격자는 GUILayout 이 아니라 절대 좌표(GUILayoutUtility.GetRect 로 자리만 확보)로 그린다:
+        // GUILayout 은 요소마다 스타일 마진을 끼워 넣어서 폭을 지정해도 열 제목과 버튼이
+        // 어긋난다(실측: "1분 30초" 칸이 밀려 잘림). 격자는 좌표를 직접 잡는 편이 정확하다.
+        private const float CELL_W = 84f, CELL_H = 40f, CELL_GAP = 5f;
+        private const float COUNT_W = 56f, COL_GAP = 18f, ROW_H = 46f, RLABEL_W = 44f;
+
+        private void DrawSetupGrid(LobbyManager lm)
         {
-            if (presets == null || presets.Length == 0) return;
-            GUILayout.BeginHorizontal(GUILayout.Height(46));
-            GUILayout.Label(label, _stLabel, GUILayout.Width(130));
+            // 헤더: 설정 제목 + 표준 모드 버튼(현재 표준이면 청록으로 켜짐)
+            GUILayout.BeginHorizontal();
+            GUILayout.Label("매치 설정", _stH2);
+            GUILayout.FlexibleSpace();
+            bool std = lm.IsStandard;
+            if (Clk(std ? "표준 모드 ✓" : "표준 모드", Btn(std ? UiKit.Teal : UiKit.Yellow, 20),
+                    GUILayout.Width(150), GUILayout.Height(40)) && !std)
+                lm.ApplyStandardSetupServerRpc();
+            GUILayout.EndHorizontal();
+
+            float timeColW = CELL_W * 3f + CELL_GAP * 2f;
+            float countColW = COUNT_W * 3f + CELL_GAP * 2f;
+            float gridH = 24f + ROW_H * Climb.ROUNDS;
+            Rect area = GUILayoutUtility.GetRect(10f, gridH, GUILayout.ExpandWidth(true));
+
+            float xPrep  = area.x + RLABEL_W;
+            float xPlay  = xPrep + timeColW + COL_GAP;
+            float xCount = xPlay + timeColW + COL_GAP;
+
+            // 열 제목
+            GUI.Label(new Rect(xPrep,  area.y, timeColW,  22f), "준비 시간", _stSmall);
+            GUI.Label(new Rect(xPlay,  area.y, timeColW,  22f), "등반 시간", _stSmall);
+            GUI.Label(new Rect(xCount, area.y, countColW + 90f, 22f), "구조물 (1개는 투명)", _stSmall);
+
+            for (int r = 1; r <= Climb.ROUNDS; r++)
+            {
+                float y = area.y + 24f + (r - 1) * ROW_H;
+                var cur = lm.Setup.Get(r);
+                GUI.Label(new Rect(area.x, y + 8f, RLABEL_W, 26f), $"R{r}", _stLabel);
+
+                int round = r; // 클로저 캡처(루프 변수 직접 캡처 금지)
+                TimeCells(xPrep, y, lm.PrepPresets, cur.Prep, v =>
+                {
+                    var s = lm.Setup; var x = s.Get(round); x.Prep = v; s.Set(round, x);
+                    lm.SetMatchSetupServerRpc(s);
+                });
+                TimeCells(xPlay, y, lm.PlayPresets, cur.Play, v =>
+                {
+                    var s = lm.Setup; var x = s.Get(round); x.Play = v; s.Set(round, x);
+                    lm.SetMatchSetupServerRpc(s);
+                });
+                CountCells(xCount, y, lm.CountPresets, cur.Count, v =>
+                {
+                    var s = lm.Setup; var x = s.Get(round); x.Count = v; s.Set(round, x);
+                    lm.SetMatchSetupServerRpc(s);
+                });
+            }
+        }
+
+        // 시간 프리셋 한 칸 묶음(선택 = 청록, 나머지 = 회색).
+        private void TimeCells(float x, float y, float[] presets, float current, System.Action<float> onPick)
+        {
+            if (presets == null) return;
             for (int i = 0; i < presets.Length; i++)
             {
-                bool selHere = Mathf.Approximately(presets[i], current);
-                if (Clk(FormatSec(presets[i]), Btn(selHere ? UiKit.Teal : UiKit.Grey, 20),
-                                     GUILayout.Height(42)) && !selHere)
+                bool sel = Mathf.Approximately(presets[i], current);
+                var r = new Rect(x + i * (CELL_W + CELL_GAP), y, CELL_W, CELL_H);
+                if (ClkRect(r, FormatSecShort(presets[i]), Btn(sel ? UiKit.Teal : UiKit.Grey, 17)) && !sel)
                     onPick(presets[i]);
-                GUILayout.Space(6);
             }
-            GUILayout.FlexibleSpace();
-            GUILayout.EndHorizontal();
+        }
+
+        // 구조물 개수 프리셋 한 칸 묶음(시간과 같은 방식).
+        private void CountCells(float x, float y, int[] presets, int current, System.Action<int> onPick)
+        {
+            if (presets == null) return;
+            for (int i = 0; i < presets.Length; i++)
+            {
+                bool sel = presets[i] == current;
+                var r = new Rect(x + i * (COUNT_W + CELL_GAP), y, COUNT_W, CELL_H);
+                if (ClkRect(r, presets[i] + "개", Btn(sel ? UiKit.Teal : UiKit.Grey, 17)) && !sel)
+                    onPick(presets[i]);
+            }
+        }
+
+        // 참가자 시점: 호스트가 고른 설정을 읽기 전용으로 요약.
+        private void DrawSetupReadonly(LobbyManager lm)
+        {
+            GUILayout.Label("매치 설정" + (lm.IsStandard ? "  <color=#5FA83E>(표준 모드)</color>" : ""), _stH2);
+            for (int r = 1; r <= Climb.ROUNDS; r++)
+            {
+                var v = lm.Setup.Get(r);
+                GUILayout.Label($"R{r}   준비 <b>{FormatSec(v.Prep)}</b> · 등반 <b>{FormatSec(v.Play)}</b> · 구조물 <b>{v.Count}개</b>(1개 투명)", _stRow);
+            }
         }
 
         private static string FormatSec(float s)
@@ -655,6 +735,14 @@ namespace RouletteParty.UI
             if (sec >= 60 && sec % 60 == 0) return (sec / 60) + "분";
             if (sec >= 60) return $"{sec / 60}분 {sec % 60}초";
             return sec + "초";
+        }
+
+        // 설정 그리드 버튼용 짧은 표기: 칸이 좁아 "1분 30초"는 잘린다.
+        // 딱 떨어지는 분이면 "3분", 아니면 초로만("90초") — 한 칸에 확실히 들어간다.
+        private static string FormatSecShort(float s)
+        {
+            int sec = Mathf.RoundToInt(s);
+            return (sec >= 60 && sec % 60 == 0) ? (sec / 60) + "분" : sec + "초";
         }
     }
 }

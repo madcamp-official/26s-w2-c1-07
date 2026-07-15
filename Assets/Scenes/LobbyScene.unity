@@ -540,12 +540,26 @@ MonoBehaviour:
   - 30
   - 60
   - 90
-  - 120
   _playPresets:
   - 120
   - 180
   - 240
-  - 300
+  _countPresets: 030000000400000005000000
+  _standardPrep:
+  - 60
+  - 60
+  - 60
+  _standardPlay:
+  - 180
+  - 180
+  - 180
+  _standardCount: 040000000400000004000000
+  _prepMin: 10
+  _prepMax: 600
+  _playMin: 30
+  _playMax: 900
+  _countMin: 1
+  _countMax: 12
   _gameSceneName: MainScene
   _stagePoint: {fileID: 328105036}
   _stageSpacing: 1.2

@@ -68,11 +68,26 @@ namespace RouletteParty.Match
         [Tooltip("방 정원. 초과 접속은 접속 승인(ConnectionService) 단계에서 거절된다.")]
         [SerializeField] private int _maxPlayers = 4;
 
-        [Header("매치 설정 (호스트가 대기방에서 조절, 전 클라 표시)")]
-        [Tooltip("준비(구조물 설치) 시간 프리셋(초).")]
-        [SerializeField] private float[] _prepPresets = { 30f, 60f, 90f, 120f };
-        [Tooltip("등반(플레이) 시간 프리셋(초).")]
-        [SerializeField] private float[] _playPresets = { 120f, 180f, 240f, 300f };
+        [Header("매치 설정 (호스트가 대기방에서 라운드별로 조절, 전 클라 표시)")]
+        [Tooltip("준비(구조물 설치) 시간 프리셋(초). 라운드마다 이 중 하나를 고른다.")]
+        [SerializeField] private float[] _prepPresets = { 30f, 60f, 90f };
+        [Tooltip("등반(플레이) 시간 프리셋(초). 라운드마다 이 중 하나를 고른다.")]
+        [SerializeField] private float[] _playPresets = { 120f, 180f, 240f };
+        [Tooltip("구조물 지급 개수 프리셋. 이 개수 중 정확히 1개가 투명(함정)이다.")]
+        [SerializeField] private int[] _countPresets = { 3, 4, 5 };
+
+        [Header("표준 모드 (버튼 한 번에 적용되는 라운드별 기본값)")]
+        [Tooltip("표준 모드의 라운드별 준비 시간(초). 인덱스 0 = 라운드 1.")]
+        [SerializeField] private float[] _standardPrep = { 60f, 60f, 60f };
+        [Tooltip("표준 모드의 라운드별 등반 시간(초). 인덱스 0 = 라운드 1.")]
+        [SerializeField] private float[] _standardPlay = { 180f, 180f, 180f };
+        [Tooltip("표준 모드의 라운드별 구조물 개수. 인덱스 0 = 라운드 1.")]
+        [SerializeField] private int[] _standardCount = { 4, 4, 4 };
+
+        [Header("설정 허용 범위 (변조 요청 대비 서버 재검증)")]
+        [SerializeField] private float _prepMin = 10f, _prepMax = 600f;
+        [SerializeField] private float _playMin = 30f, _playMax = 900f;
+        [SerializeField] private int _countMin = 1, _countMax = 12;
 
         [Header("씬 분리 (대기방 씬 전용)")]
         [Tooltip("게임 시작 시 NGO 씬 동기화로 로드할 게임 씬 이름(빌드 설정 등록 필수). 같은 씬에 MatchManager 가 있으면(레거시 단일 씬) 씬 전환 없이 기존 FSM 으로 시작한다.")]
@@ -84,18 +99,41 @@ namespace RouletteParty.Match
 
         private NetworkList<LobbyPlayerState> _players = new NetworkList<LobbyPlayerState>();
 
-        // 페이즈 시간 설정(서버 write, 전 클라 read - 대기방 UI 표시). 호스트 선택은 PlayerPrefs 로 영속.
-        private NetworkVariable<float> _prepSeconds = new NetworkVariable<float>(60f);
-        private NetworkVariable<float> _playSeconds = new NetworkVariable<float>(180f);
-        private const string KEY_PREP = "match.prepSeconds";
-        private const string KEY_PLAY = "match.playSeconds";
+        // 라운드별 매치 설정(서버 write, 전 클라 read - 대기방 UI 표시). 호스트 선택은 PlayerPrefs 로 영속.
+        // 한 덩어리(MatchSetup)로 복제해야 "표준 모드"의 9개 값 일괄 변경이 원자적으로 반영된다.
+        private NetworkVariable<MatchSetup> _setup = new NetworkVariable<MatchSetup>();
+        private const string KEY_SETUP = "match.setup"; // "prep,play,count" x3 (라운드 순서)
 
-        /// <summary>현재 설정된 준비 페이즈 시간(초, 전 클라 표시용).</summary>
-        public float PrepSeconds => _prepSeconds.Value;
-        /// <summary>현재 설정된 등반 페이즈 시간(초, 전 클라 표시용).</summary>
-        public float PlaySeconds => _playSeconds.Value;
+        /// <summary>현재 라운드별 설정(전 클라 표시용).</summary>
+        public MatchSetup Setup => _setup.Value;
+        /// <summary>표준 모드 값(UI 가 "지금 표준인지" 표시하는 데도 쓴다).</summary>
+        public MatchSetup StandardSetup
+        {
+            get
+            {
+                var s = new MatchSetup();
+                for (int r = 1; r <= Climb.ROUNDS; r++)
+                    s.Set(r, new RoundSetup
+                    {
+                        Prep  = Pick(_standardPrep, r, 60f),
+                        Play  = Pick(_standardPlay, r, 180f),
+                        Count = (int)Pick(_standardCount, r, 4),
+                    });
+                return s;
+            }
+        }
+        /// <summary>현재 설정이 표준 모드와 같은가(UI 하이라이트용).</summary>
+        public bool IsStandard => _setup.Value.Equals(StandardSetup);
+
         public float[] PrepPresets => _prepPresets;
         public float[] PlayPresets => _playPresets;
+        public int[]   CountPresets => _countPresets;
+
+        // 라운드(1-based)로 배열 읽기. 배열이 짧으면 마지막 값, 비었으면 기본값.
+        private static float Pick(float[] arr, int round, float fallback) =>
+            (arr == null || arr.Length == 0) ? fallback : arr[Mathf.Clamp(round - 1, 0, arr.Length - 1)];
+        private static float Pick(int[] arr, int round, int fallback) =>
+            (arr == null || arr.Length == 0) ? fallback : arr[Mathf.Clamp(round - 1, 0, arr.Length - 1)];
 
         // 게임 씬에는 LobbyManager 가 없으므로(씬 분리) 마지막 대기방 닉네임을 정적으로 남긴다.
         // 모든 피어가 자기 복제본(NetworkList)에서 스냅샷을 뜨므로 전 피어 동일 - PlayerPalette 폴백.
@@ -138,9 +176,8 @@ namespace RouletteParty.Match
             SyncNameSnapshot();
             if (!IsServer) return;
 
-            // 호스트가 마지막으로 고른 페이즈 시간 복원 -> 서버 소비 값(MatchSettings)에 반영.
-            _prepSeconds.Value = PlayerPrefs.GetFloat(KEY_PREP, _prepSeconds.Value);
-            _playSeconds.Value = PlayerPrefs.GetFloat(KEY_PLAY, _playSeconds.Value);
+            // 호스트가 마지막으로 고른 설정 복원(없으면 표준 모드) -> 서버 소비 값(MatchSettings)에 반영.
+            _setup.Value = LoadSetup();
             ApplyMatchSettings();
 
             NetworkManager.OnClientConnectedCallback  += HandleClientConnected;
@@ -231,33 +268,88 @@ namespace RouletteParty.Match
                 if (_players[i].ClientId == clientId) { _players.RemoveAt(i); return; }
         }
 
-        // 서버 소비 값 반영: MatchManager(게임 씬)가 PREP/PLAY 시간으로 사용한다.
-        private void ApplyMatchSettings()
+        // 서버 소비 값 반영: MatchManager(게임 씬)가 라운드별 PREP/PLAY 시간·구조물 개수로 사용한다.
+        private void ApplyMatchSettings() => MatchSettings.Apply(_setup.Value);
+
+        // ---- 설정 영속화(호스트 = 서버라 서버 저장 = 호스트 저장) ----
+        // "prep,play,count" x3 을 한 문자열로 저장한다(키 9개보다 원자적 - 부분 저장 상태가 안 생긴다).
+        private MatchSetup LoadSetup()
         {
-            MatchSettings.PrepSeconds = _prepSeconds.Value;
-            MatchSettings.PlaySeconds = _playSeconds.Value;
+            string raw = PlayerPrefs.GetString(KEY_SETUP, "");
+            var parts = raw.Split(',');
+            if (parts.Length != Climb.ROUNDS * 3) return StandardSetup; // 미저장/포맷 불일치 -> 표준
+
+            var s = new MatchSetup();
+            for (int r = 1; r <= Climb.ROUNDS; r++)
+            {
+                int i = (r - 1) * 3;
+                float prep, play; int count;
+                if (!float.TryParse(parts[i], out prep) ||
+                    !float.TryParse(parts[i + 1], out play) ||
+                    !int.TryParse(parts[i + 2], out count)) return StandardSetup;
+                s.Set(r, new RoundSetup { Prep = prep, Play = play, Count = count });
+            }
+            return Sanitize(s);
+        }
+
+        private void StoreSetup()
+        {
+            var sb = new System.Text.StringBuilder();
+            for (int r = 1; r <= Climb.ROUNDS; r++)
+            {
+                var v = _setup.Value.Get(r);
+                if (r > 1) sb.Append(',');
+                sb.Append(v.Prep).Append(',').Append(v.Play).Append(',').Append(v.Count);
+            }
+            PlayerPrefs.SetString(KEY_SETUP, sb.ToString());
+            PlayerPrefs.Save();
+        }
+
+        // 변조/저장 손상 대비 범위 클램프(서버 권위).
+        private MatchSetup Sanitize(MatchSetup s)
+        {
+            for (int r = 1; r <= Climb.ROUNDS; r++)
+            {
+                var v = s.Get(r);
+                v.Prep  = Mathf.Clamp(v.Prep, _prepMin, _prepMax);
+                v.Play  = Mathf.Clamp(v.Play, _playMin, _playMax);
+                v.Count = Mathf.Clamp(v.Count, _countMin, _countMax);
+                s.Set(r, v);
+            }
+            return s;
+        }
+
+        // 호스트만 설정을 바꿀 수 있고, 대기방에서만 가능하다. UI 가 이미 막지만 변조 요청 대비 재검증.
+        private bool CanEdit(ulong sender)
+        {
+            var mm = MatchManager.Instance;
+            if (mm != null && mm.IsSpawned && mm.CurrentPhase != MatchPhase.Lobby) return false; // 게임 중 변경 금지
+            for (int i = 0; i < _players.Count; i++)
+                if (_players[i].ClientId == sender && _players[i].IsHost) return true;
+            return false;
         }
 
         /// <summary>
-        /// 호스트의 페이즈 시간 변경(대기방에서만). 서버가 호스트 여부/범위를 재검증하고
-        /// 선택을 PlayerPrefs 로 영속화한다(호스트 = 서버라 서버 저장 = 호스트 저장).
+        /// 호스트의 라운드별 매치 설정 변경(대기방에서만). 서버가 호스트 여부/범위를 재검증하고
+        /// 선택을 PlayerPrefs 로 영속화한다.
         /// </summary>
         [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Everyone)]
-        public void SetPhaseTimingServerRpc(float prepSeconds, float playSeconds, RpcParams rpcParams = default)
+        public void SetMatchSetupServerRpc(MatchSetup setup, RpcParams rpcParams = default)
         {
-            var mm = MatchManager.Instance;
-            if (mm != null && mm.IsSpawned && mm.CurrentPhase != MatchPhase.Lobby) return; // 게임 중 변경 금지
+            if (!CanEdit(rpcParams.Receive.SenderClientId)) return;
+            _setup.Value = Sanitize(setup);
+            StoreSetup();
+            ApplyMatchSettings();
+        }
 
-            ulong sender = rpcParams.Receive.SenderClientId;
-            bool senderIsHost = false;
-            for (int i = 0; i < _players.Count; i++)
-                if (_players[i].ClientId == sender && _players[i].IsHost) { senderIsHost = true; break; }
-            if (!senderIsHost) return;
-
-            _prepSeconds.Value = Mathf.Clamp(prepSeconds, 10f, 600f);
-            _playSeconds.Value = Mathf.Clamp(playSeconds, 30f, 900f);
-            PlayerPrefs.SetFloat(KEY_PREP, _prepSeconds.Value);
-            PlayerPrefs.SetFloat(KEY_PLAY, _playSeconds.Value);
+        /// <summary>표준 모드 적용: 라운드별 시간·구조물 개수를 미리 정해 둔 기본값으로 한 번에 되돌린다.
+        /// 표준값이 서버(인스펙터)에만 있으므로 클라가 값을 지어내 보낼 여지가 없다.</summary>
+        [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Everyone)]
+        public void ApplyStandardSetupServerRpc(RpcParams rpcParams = default)
+        {
+            if (!CanEdit(rpcParams.Receive.SenderClientId)) return;
+            _setup.Value = Sanitize(StandardSetup);
+            StoreSetup();
             ApplyMatchSettings();
         }
 
